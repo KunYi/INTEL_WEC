@@ -1,0 +1,88 @@
+;
+; Copyright (c) Microsoft Corporation.  All rights reserved.
+;
+;
+; Use of this source code is subject to the terms of the Microsoft end-user
+; license agreement (EULA) under which you licensed this SOFTWARE PRODUCT.
+; If you did not accept the terms of the EULA, you are not authorized to use
+; this source code. For a copy of the EULA, please see the LICENSE.RTF on your
+; install media.
+;
+; -- Intel Copyright Notice --
+; 
+; @par
+; Copyright (c) 2002-2008 Intel Corporation All Rights Reserved.
+; 
+; @par
+; The source code contained or described herein and all documents
+; related to the source code ("Material") are owned by Intel Corporation
+; or its suppliers or licensors.  Title to the Material remains with
+; Intel Corporation or its suppliers and licensors.
+; 
+; @par
+; The Material is protected by worldwide copyright and trade secret laws
+; and treaty provisions. No part of the Material may be used, copied,
+; reproduced, modified, published, uploaded, posted, transmitted,
+; distributed, or disclosed in any way except in accordance with the
+; applicable license agreement .
+; 
+; @par
+; No license under any patent, copyright, trade secret or other
+; intellectual property right is granted to or conferred upon you by
+; disclosure or delivery of the Materials, either expressly, by
+; implication, inducement, estoppel, except in accordance with the
+; applicable license agreement.
+; 
+; @par
+; Unless otherwise agreed by Intel in writing, you may not remove or
+; alter this notice or any other notice embedded in Materials by Intel
+; or Intel's suppliers or licensors in any way.
+; 
+; @par
+; For further details, please see the file README.TXT distributed with
+; this software.
+; 
+; @par
+; -- End Intel Copyright Notice --
+;
+
+; This file is to be included in platform.reg if required.
+;
+; $(PCI_BUS_ROOT) is a variable that needs to be set in the including 
+; platform.reg. It's value will be something like 
+; HKEY_LOCAL_MACHINE\Drivers\BuiltIn\PCI
+
+; ichhda.dll - Unified Audio Driver Model - Monolithic Wavedev/MixerAPI driver
+[$(PCI_BUS_ROOT)\Template\hda]
+   "Driver Version"="0.0.0.1"
+   "Prefix"="WAV"
+   "Dll"="ichhda.dll"
+   "Order"=dword:6
+   "Class"=dword:04
+   "SubClass"=dword:03
+   "ProgIF"=dword:00
+   "VendorID"=dword:8086
+   "IsrDll"="giisr.dll"
+   "IsrHandler"="ISRHandler"
+   "Priority256"=dword:73 
+   ; This driver support Wavedev and is power manageable
+   "IClass"=multi_sz:"{37168569-61C4-45fd-BD54-9442C7DBA46F}",
+		     "{97D4AD06-271B-4536-8406-6AB577EC16E6}"
+ 
+   ; Maximum PCM Out levelGain, range from 0-1F (0=+12dB, 08=0dB, 1F=-34dB) 
+   "MaxPcmOutLevelGain"=dword:08 
+
+   ; AC-3 Dolby Digital 5.1 support
+   "AC3Allowed"=dword:1
+
+   ; DTS 5.1 surround sound support
+   "DTSAllowed"=dword:1
+
+   ; WMA Pro 5.1 surround sound is supported but has not been validated yet
+   "WMA3Allowed"=dword:0
+
+
+; Override wave API load order to follow audio driver
+[HKEY_LOCAL_MACHINE\Drivers\BuiltIn\WAPIMAN]
+    "Order"=dword:11
+    

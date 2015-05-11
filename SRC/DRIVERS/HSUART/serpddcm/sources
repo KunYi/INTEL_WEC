@@ -1,0 +1,23 @@
+!if 0
+Copyright (c) Microsoft Corporation.  All rights reserved.
+!endif
+!if 0
+Use of this sample source code is subject to the terms of the Microsoft
+license agreement under which you licensed this sample source code. If
+you did not accept the terms of the license agreement, you are not
+authorized to use this sample source code. For the terms of the license,
+please see the license agreement between you and Microsoft or, if applicable,
+see the LICENSE.RTF on your install media or the root of your tools installation.
+THE SAMPLE SOURCE CODE IS PROVIDED "AS IS", WITH NO WARRANTIES OR INDEMNITIES.
+!endif
+
+TARGETNAME=lpss_serpddcm
+TARGETTYPE=LIBRARY
+
+SOURCES= cserpdd.cpp
+
+CDEFINES=$(CDEFINES) -DUSE_NEW_SERIAL_MODEL 
+INCLUDES=..\SERPDDCM;..\oo16550;..\isr16550;..\com_mdd2;..\INC;$(INCLUDES);
+
+#xref VIGUID {13adc65c-fbed-4063-9401-92c91a4bc018}
+#xref VSGUID {333e6aed-c8f3-4b67-be30-a4632ecfcd96}

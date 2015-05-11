@@ -1,0 +1,366 @@
+;
+; Copyright (c) Microsoft Corporation.  All rights reserved.
+;
+;
+; Use of this sample source code is subject to the terms of the Microsoft
+; license agreement under which you licensed this sample source code. If
+; you did not accept the terms of the license agreement, you are not
+; authorized to use this sample source code. For the terms of the license,
+; please see the license agreement between you and Microsoft or, if applicable,
+; see the LICENSE.RTF on your install media or the root of your tools installation.
+; THE SAMPLE SOURCE CODE IS PROVIDED "AS IS", WITH NO WARRANTIES OR INDEMNITIES.
+;
+
+; -- Intel Copyright Notice -- 
+;  
+; @par 
+; Copyright (c) 2002-2011 Intel Corporation All Rights Reserved. 
+;  
+; @par 
+; The source code contained or described herein and all documents 
+; related to the source code ("Material") are owned by Intel Corporation 
+; or its suppliers or licensors.  Title to the Material remains with 
+; Intel Corporation or its suppliers and licensors. 
+;  
+; @par 
+; The Material is protected by worldwide copyright and trade secret laws 
+; and treaty provisions. No part of the Material may be used, copied, 
+; reproduced, modified, published, uploaded, posted, transmitted, 
+; distributed, or disclosed in any way except in accordance with the 
+; applicable license agreement . 
+;  
+; @par 
+; No license under any patent, copyright, trade secret or other 
+; intellectual property right is granted to or conferred upon you by 
+; disclosure or delivery of the Materials, either expressly, by 
+; implication, inducement, estoppel, except in accordance with the 
+; applicable license agreement. 
+;  
+; @par 
+; Unless otherwise agreed by Intel in writing, you may not remove or 
+; alter this notice or any other notice embedded in Materials by Intel 
+; or Intel's suppliers or licensors in any way. 
+;  
+; @par 
+; For further details, please see the file README.TXT distributed with 
+; this software. 
+;  
+; @par 
+; -- End Intel Copyright Notice -- 
+;  
+
+; This file is to be included in platform.reg if required.
+;
+; $(PCI_BUS_ROOT) is a variable that needs to be set in the including 
+; platform.reg. It's value will be something like 
+; HKEY_LOCAL_MACHINE\Drivers\BuiltIn\PCI
+
+; SpawnFunction specified in platform.reg.
+
+; TransferMode Key
+;   PIO default mode                0x00
+;   PIO default mode, disable IORDY 0x01
+;   PIO flow control transfer mode  0x08 (mode 0), 0x09 (mode 1), 0x0A (mode 2), 0x0B (mode 3), 0x0C (mode 4)
+;   Multiword DMA mode              0x20 (mode 0), 0x21 (mode 1), 0x22 (mode 2)
+;   Ultra DMA mode                  0x40 (mode 0), 0x41 (mode 1), 0x42 (mode 2), 0x43 (mode 3), 0x44 (mode 4), ...
+;   Default                         0xFF
+
+
+;
+; Registry for Legacy Only Controllers
+; If the platform doesn't support this configuration, this block can be commented out 
+; for reducing the code side of registry
+;
+; Start of the configuration block for Legacy Only
+[$(PCI_BUS_ROOT)\Template\I82371_LegacyOnly]
+   "IClass"=multi_sz:"{CDDC3621-3512-4b3f-BB6F-B4DD5E061795}"
+   "Prefix"="IDE"
+   "Dll"="atapi.dll"
+   "Order"=dword:06
+   "Class"=dword:01
+   "SubClass"=dword:01
+   "VendorID"=dword:8086
+   "ProgIF"=dword:80
+   "ConfigEntry"="GenericConfig"   ; PCI configuration entry point
+   "LegacyIRQ"=dword:0E            ; The primary legacy IRQ, commonly 0xe on x86
+   "Irq"=dword:0E                  ; 14
+   "SysIntr"=dword:00              ; SysIntr not specified
+   "SpawnFunction"="CreateIch"     ; hard disk + CD/DVD
+   "DMAAlignment"=dword:04         ; default DMA alignment
+   "SoftResetTimeout"=dword:03     ; ATA/ATAPI spec defines 31s ceiling; this is too long
+   "StatusPollCycles"=dword:500    ; Status register DRQ/BSY polling; 1280 poll cycles
+   "StatusPollsPerCycle"=dword:20  ; Status register DRQ/BSY polling; 32 polls per cycle
+   "StatusPollCyclePause"=dword:50 ; Status register DRQ/BSY polling; 80 milliseconds between poll cycles
+;  "IsrDll"=""                     ; not required
+;  "IsrHandler"=""                 ; not required
+   "RegisterStride"=dword:01       ; AT task file register stride; register block is contiguous
+   "Disable48BitLBA"=dword:0       ; disable 48-bit LBA command mode {0=enable, 1=disable}
+[$(PCI_BUS_ROOT)\Template\I82371_LegacyOnly\Device0]
+   ;"IClass"=multi_sz:"{A4E7EDDA-E575-4252-9D6B-4195D48BB865}"
+   "IClass"=multi_sz:"{A4E7EDDA-E575-4252-9D6B-4195D48BB865}","{CD7D2039-29F0-449d-AAD2-C0714EBD9A4D}","{2D170AA2-02C3-4437-B268-37D884C9195A}","{8DD679CE-8AB4-43c8-A14A-EA4963FAA715}"
+   "Prefix"="DSK"
+   "Dll"="atapi.dll"
+   "InterruptDriven"=dword:01      ; interrupt driven I/O {0=disable, 1=enable}
+   "DMA"=dword:01                  ; DMA {0=disable, 1=enable, 2=enable ATA only}
+   "DoubleBufferSize"=dword:10000  ; double buffer size (bytes); should be larger than DRQ data block {0=disabled, ..., 131072}
+   "DrqDataBlockSize"=dword:0      ; sector-aligned DRQ data block size (bytes), i.e., R/W Multiple sectors/interrupt {0=device default, 512, ..., 130560}
+   "WriteCache"=dword:01           ; write cache {0=disable, 1=enable}
+   "LookAhead"=dword:01            ; lookahead {0=disable, 1=enable}
+   "DeviceId"=dword:00             ; device 0, i.e., primary master
+   "TransferMode"=dword:FF         ; transfer mode (Ultra DMA 3, 4 require 80-conductor cable); see TransferMode Key
+   "IstPriority256"=dword:61       ; SharedIRQ IST priority level
+[$(PCI_BUS_ROOT)\Template\I82371_LegacyOnly\Device1]
+   ;"IClass"=multi_sz:"{A4E7EDDA-E575-4252-9D6B-4195D48BB865}"
+   "IClass"=multi_sz:"{A4E7EDDA-E575-4252-9D6B-4195D48BB865}","{CD7D2039-29F0-449d-AAD2-C0714EBD9A4D}","{2D170AA2-02C3-4437-B268-37D884C9195A}","{8DD679CE-8AB4-43c8-A14A-EA4963FAA715}"
+   "Prefix"="DSK"
+   "Dll"="atapi.dll"
+   "InterruptDriven"=dword:01
+   "DMA"=dword:01
+   "DoubleBufferSize"=dword:10000
+   "DrqDataBlockSize"=dword:0
+   "WriteCache"=dword:01
+   "LookAhead"=dword:01
+   "DeviceId"=dword:01             ; device 1, i.e., primary slave
+   "TransferMode"=dword:FF
+   "IstPriority256"=dword:61       ; SharedIRQ IST priority level
+[$(PCI_BUS_ROOT)\Template\I82371_LegacyOnly\Device2]
+   ;"IClass"=multi_sz:"{A4E7EDDA-E575-4252-9D6B-4195D48BB865}"
+   "IClass"=multi_sz:"{A4E7EDDA-E575-4252-9D6B-4195D48BB865}","{CD7D2039-29F0-449d-AAD2-C0714EBD9A4D}","{2D170AA2-02C3-4437-B268-37D884C9195A}","{8DD679CE-8AB4-43c8-A14A-EA4963FAA715}"
+   "Prefix"="DSK"
+   "Dll"="atapi.dll"
+   "InterruptDriven"=dword:01
+   "DMA"=dword:01
+   "DoubleBufferSize"=dword:10000
+   "DrqDataBlockSize"=dword:0
+   "WriteCache"=dword:01
+   "LookAhead"=dword:01
+   "DeviceId"=dword:02             ; device 2, i.e., secondary master
+   "TransferMode"=dword:FF
+   "IstPriority256"=dword:61       ; SharedIRQ IST priority level
+[$(PCI_BUS_ROOT)\Template\I82371_LegacyOnly\Device3]
+   ;"IClass"=multi_sz:"{A4E7EDDA-E575-4252-9D6B-4195D48BB865}"
+   "IClass"=multi_sz:"{A4E7EDDA-E575-4252-9D6B-4195D48BB865}","{CD7D2039-29F0-449d-AAD2-C0714EBD9A4D}","{2D170AA2-02C3-4437-B268-37D884C9195A}","{8DD679CE-8AB4-43c8-A14A-EA4963FAA715}"
+   "Prefix"="DSK"
+   "Dll"="atapi.dll"
+   "InterruptDriven"=dword:01
+   "DMA"=dword:01
+   "DoubleBufferSize"=dword:10000
+   "DrqDataBlockSize"=dword:0
+   "WriteCache"=dword:01
+   "LookAhead"=dword:01
+   "DeviceId"=dword:03             ; device 3, i.e., secondary slave
+   "TransferMode"=dword:FF
+   "IstPriority256"=dword:61       ; SharedIRQ IST priority level
+IF PRJ_ENABLE_FSREGHIVE
+[$(PCI_BUS_ROOT)\Template\I82371_LegacyOnly]
+    "Flags"=dword:00001000
+[$(PCI_BUS_ROOT)\Template\I82371_LegacyOnly\Device0]
+    "Flags"=dword:00001000
+[$(PCI_BUS_ROOT)\Template\I82371_LegacyOnly\Device1]
+    "Flags"=dword:00001000
+[$(PCI_BUS_ROOT)\Template\I82371_LegacyOnly\Device2]
+    "Flags"=dword:00001000
+[$(PCI_BUS_ROOT)\Template\I82371_LegacyOnly\Device3]
+    "Flags"=dword:00001000
+ENDIF PRJ_ENABLE_FSREGHIVE
+; End of the configuration block for Legacy Only
+
+
+;
+; Registry for Native Only Controllers
+; If the platform doesn't support this configuration, this block can be commented out 
+; for reducing the code side of registry
+;
+; Start of the configuration block for Native Only
+[$(PCI_BUS_ROOT)\Template\I82371_NativeOnly]
+   "IClass"=multi_sz:"{CDDC3621-3512-4b3f-BB6F-B4DD5E061795}"
+   "Prefix"="IDE"
+   "Dll"="atapi.dll"
+   "Order"=dword:06
+   "Class"=dword:01
+   "SubClass"=dword:01
+   "VendorID"=dword:8086
+   "ProgIF"=dword:8F
+   "ConfigEntry"="NativeConfig"   ; PCI configuration entry point
+   "LegacyIRQ"=dword:FF               
+   "IsrDll"="giisr.dll"            ; bus-agnostic; installable ISR
+   "IsrHandler"="ISRHandler"       ; bus-agnostic; installable ISR
+   "SpawnFunction"="CreateNativePCIHDCD"     ; hard disk + CD/DVD
+   "DMAAlignment"=dword:04         ; default DMA alignment
+   "SoftResetTimeout"=dword:03     ; ATA/ATAPI spec defines 31s ceiling; this is too long
+   "StatusPollCycles"=dword:500    ; Status register DRQ/BSY polling; 1280 poll cycles
+   "StatusPollsPerCycle"=dword:20  ; Status register DRQ/BSY polling; 32 polls per cycle
+   "StatusPollCyclePause"=dword:50 ; Status register DRQ/BSY polling; 80 milliseconds between poll cycles
+;  "IsrDll"=""                     ; not required
+;  "IsrHandler"=""                 ; not required
+   "RegisterStride"=dword:01       ; AT task file register stride; register block is contiguous
+   "Disable48BitLBA"=dword:0       ; disable 48-bit LBA command mode {0=enable, 1=disable}
+[$(PCI_BUS_ROOT)\Template\I82371_NativeOnly\Device0]
+   ;"IClass"=multi_sz:"{A4E7EDDA-E575-4252-9D6B-4195D48BB865}"
+   "IClass"=multi_sz:"{A4E7EDDA-E575-4252-9D6B-4195D48BB865}","{CD7D2039-29F0-449d-AAD2-C0714EBD9A4D}","{2D170AA2-02C3-4437-B268-37D884C9195A}","{8DD679CE-8AB4-43c8-A14A-EA4963FAA715}"
+   "Prefix"="DSK"
+   "Dll"="atapi.dll"
+   "InterruptDriven"=dword:01      ; interrupt driven I/O {0=disable, 1=enable}
+   "DMA"=dword:01                  ; DMA {0=disable, 1=enable, 2=enable ATA only}
+   "DoubleBufferSize"=dword:10000  ; double buffer size (bytes); should be larger than DRQ data block {0=disabled, ..., 131072}
+   "DrqDataBlockSize"=dword:0      ; sector-aligned DRQ data block size (bytes), i.e., R/W Multiple sectors/interrupt {0=device default, 512, ..., 130560}
+   "WriteCache"=dword:01           ; write cache {0=disable, 1=enable}
+   "LookAhead"=dword:01            ; lookahead {0=disable, 1=enable}
+   "DeviceId"=dword:00             ; device 0, i.e., primary master
+   "TransferMode"=dword:FF         ; transfer mode (Ultra DMA 3, 4 require 80-conductor cable); see TransferMode Key
+   "IstPriority256"=dword:61       ; SharedIRQ IST priority level
+[$(PCI_BUS_ROOT)\Template\I82371_NativeOnly\Device1]
+   ;"IClass"=multi_sz:"{A4E7EDDA-E575-4252-9D6B-4195D48BB865}"
+   "IClass"=multi_sz:"{A4E7EDDA-E575-4252-9D6B-4195D48BB865}","{CD7D2039-29F0-449d-AAD2-C0714EBD9A4D}","{2D170AA2-02C3-4437-B268-37D884C9195A}","{8DD679CE-8AB4-43c8-A14A-EA4963FAA715}"
+   "Prefix"="DSK"
+   "Dll"="atapi.dll"
+   "InterruptDriven"=dword:01
+   "DMA"=dword:01
+   "DoubleBufferSize"=dword:10000
+   "DrqDataBlockSize"=dword:0
+   "WriteCache"=dword:01
+   "LookAhead"=dword:01
+   "DeviceId"=dword:01             ; device 1, i.e., primary slave
+   "TransferMode"=dword:FF
+   "IstPriority256"=dword:61       ; SharedIRQ IST priority level
+[$(PCI_BUS_ROOT)\Template\I82371_NativeOnly\Device2]
+   ;"IClass"=multi_sz:"{A4E7EDDA-E575-4252-9D6B-4195D48BB865}"
+   "IClass"=multi_sz:"{A4E7EDDA-E575-4252-9D6B-4195D48BB865}","{CD7D2039-29F0-449d-AAD2-C0714EBD9A4D}","{2D170AA2-02C3-4437-B268-37D884C9195A}","{8DD679CE-8AB4-43c8-A14A-EA4963FAA715}"
+   "Prefix"="DSK"
+   "Dll"="atapi.dll"
+   "InterruptDriven"=dword:01
+   "DMA"=dword:01
+   "DoubleBufferSize"=dword:10000
+   "DrqDataBlockSize"=dword:0
+   "WriteCache"=dword:01
+   "LookAhead"=dword:01
+   "DeviceId"=dword:02             ; device 2, i.e., secondary master
+   "TransferMode"=dword:FF
+   "IstPriority256"=dword:61       ; SharedIRQ IST priority level
+[$(PCI_BUS_ROOT)\Template\I82371_NativeOnly\Device3]
+   ;"IClass"=multi_sz:"{A4E7EDDA-E575-4252-9D6B-4195D48BB865}"
+   "IClass"=multi_sz:"{A4E7EDDA-E575-4252-9D6B-4195D48BB865}","{CD7D2039-29F0-449d-AAD2-C0714EBD9A4D}","{2D170AA2-02C3-4437-B268-37D884C9195A}","{8DD679CE-8AB4-43c8-A14A-EA4963FAA715}"
+   "Prefix"="DSK"
+   "Dll"="atapi.dll"
+   "InterruptDriven"=dword:01
+   "DMA"=dword:01
+   "DoubleBufferSize"=dword:10000
+   "DrqDataBlockSize"=dword:0
+   "WriteCache"=dword:01
+   "LookAhead"=dword:01
+   "DeviceId"=dword:03             ; device 3, i.e., secondary slave
+   "TransferMode"=dword:FF
+   "IstPriority256"=dword:61       ; SharedIRQ IST priority level
+IF PRJ_ENABLE_FSREGHIVE
+[$(PCI_BUS_ROOT)\Template\I82371_NativeOnly]
+    "Flags"=dword:00001000
+[$(PCI_BUS_ROOT)\Template\I82371_NativeOnly\Device0]
+    "Flags"=dword:00001000
+[$(PCI_BUS_ROOT)\Template\I82371_NativeOnly\Device1]
+    "Flags"=dword:00001000
+[$(PCI_BUS_ROOT)\Template\I82371_NativeOnly\Device2]
+    "Flags"=dword:00001000
+[$(PCI_BUS_ROOT)\Template\I82371_NativeOnly\Device3]
+    "Flags"=dword:00001000
+ENDIF PRJ_ENABLE_FSREGHIVE
+; End of the configuration block for Native Only
+
+
+;
+; Registry for Native supported Controllers but choose to use Legacy Mode
+; If the platform doesn't support this configuration, this block can be commented out 
+; for reducing the code side of registry
+;
+; Start of the configuration block for Forced Legacy
+[$(PCI_BUS_ROOT)\Template\I82371_ForcedLegacy]
+   "IClass"=multi_sz:"{CDDC3621-3512-4b3f-BB6F-B4DD5E061795}"
+   "Prefix"="IDE"
+   "Dll"="atapi.dll"
+   "Order"=dword:06
+   "Class"=dword:01
+   "SubClass"=dword:01
+   "VendorID"=dword:8086
+   "ProgIF"=dword:8A
+   "ConfigEntry"="GenericConfig"   ; PCI configuration entry point
+   "LegacyIRQ"=dword:0E            ; The primary legacy IRQ, commonly 0xe on x86
+   "Irq"=dword:0E                  ; 14
+   "SysIntr"=dword:00              ; SysIntr not specified
+   "SpawnFunction"="CreateIch"     ; hard disk + CD/DVD
+   "DMAAlignment"=dword:04         ; default DMA alignment
+   "SoftResetTimeout"=dword:03     ; ATA/ATAPI spec defines 31s ceiling; this is too long
+   "StatusPollCycles"=dword:500    ; Status register DRQ/BSY polling; 1280 poll cycles
+   "StatusPollsPerCycle"=dword:20  ; Status register DRQ/BSY polling; 32 polls per cycle
+   "StatusPollCyclePause"=dword:50 ; Status register DRQ/BSY polling; 80 milliseconds between poll cycles
+;  "IsrDll"=""                     ; not required
+;  "IsrHandler"=""                 ; not required
+   "RegisterStride"=dword:01       ; AT task file register stride; register block is contiguous
+   "Disable48BitLBA"=dword:0       ; disable 48-bit LBA command mode {0=enable, 1=disable}
+[$(PCI_BUS_ROOT)\Template\I82371_ForcedLegacy\Device0]
+   ;"IClass"=multi_sz:"{A4E7EDDA-E575-4252-9D6B-4195D48BB865}"
+   "IClass"=multi_sz:"{A4E7EDDA-E575-4252-9D6B-4195D48BB865}","{CD7D2039-29F0-449d-AAD2-C0714EBD9A4D}","{2D170AA2-02C3-4437-B268-37D884C9195A}","{8DD679CE-8AB4-43c8-A14A-EA4963FAA715}"
+   "Prefix"="DSK"
+   "Dll"="atapi.dll"
+   "InterruptDriven"=dword:01      ; interrupt driven I/O {0=disable, 1=enable}
+   "DMA"=dword:01                  ; DMA {0=disable, 1=enable, 2=enable ATA only}
+   "DoubleBufferSize"=dword:10000  ; double buffer size (bytes); should be larger than DRQ data block {0=disabled, ..., 131072}
+   "DrqDataBlockSize"=dword:0      ; sector-aligned DRQ data block size (bytes), i.e., R/W Multiple sectors/interrupt {0=device default, 512, ..., 130560}
+   "WriteCache"=dword:01           ; write cache {0=disable, 1=enable}
+   "LookAhead"=dword:01            ; lookahead {0=disable, 1=enable}
+   "DeviceId"=dword:00             ; device 0, i.e., primary master
+   "TransferMode"=dword:FF         ; transfer mode (Ultra DMA 3, 4 require 80-conductor cable); see TransferMode Key
+   "IstPriority256"=dword:61       ; SharedIRQ IST priority level
+[$(PCI_BUS_ROOT)\Template\I82371_ForcedLegacy\Device1]
+   ;"IClass"=multi_sz:"{A4E7EDDA-E575-4252-9D6B-4195D48BB865}"
+   "IClass"=multi_sz:"{A4E7EDDA-E575-4252-9D6B-4195D48BB865}","{CD7D2039-29F0-449d-AAD2-C0714EBD9A4D}","{2D170AA2-02C3-4437-B268-37D884C9195A}","{8DD679CE-8AB4-43c8-A14A-EA4963FAA715}"
+   "Prefix"="DSK"
+   "Dll"="atapi.dll"
+   "InterruptDriven"=dword:01
+   "DMA"=dword:01
+   "DoubleBufferSize"=dword:10000
+   "DrqDataBlockSize"=dword:0
+   "WriteCache"=dword:01
+   "LookAhead"=dword:01
+   "DeviceId"=dword:01             ; device 1, i.e., primary slave
+   "TransferMode"=dword:FF
+   "IstPriority256"=dword:61       ; SharedIRQ IST priority level
+[$(PCI_BUS_ROOT)\Template\I82371_ForcedLegacy\Device2]
+   ;"IClass"=multi_sz:"{A4E7EDDA-E575-4252-9D6B-4195D48BB865}"
+   "IClass"=multi_sz:"{A4E7EDDA-E575-4252-9D6B-4195D48BB865}","{CD7D2039-29F0-449d-AAD2-C0714EBD9A4D}","{2D170AA2-02C3-4437-B268-37D884C9195A}","{8DD679CE-8AB4-43c8-A14A-EA4963FAA715}"
+   "Prefix"="DSK"
+   "Dll"="atapi.dll"
+   "InterruptDriven"=dword:01
+   "DMA"=dword:01
+   "DoubleBufferSize"=dword:10000
+   "DrqDataBlockSize"=dword:0
+   "WriteCache"=dword:01
+   "LookAhead"=dword:01
+   "DeviceId"=dword:02             ; device 2, i.e., secondary master
+   "TransferMode"=dword:FF
+   "IstPriority256"=dword:61       ; SharedIRQ IST priority level
+[$(PCI_BUS_ROOT)\Template\I82371_ForcedLegacy\Device3]
+   ;"IClass"=multi_sz:"{A4E7EDDA-E575-4252-9D6B-4195D48BB865}"
+   "IClass"=multi_sz:"{A4E7EDDA-E575-4252-9D6B-4195D48BB865}","{CD7D2039-29F0-449d-AAD2-C0714EBD9A4D}","{2D170AA2-02C3-4437-B268-37D884C9195A}","{8DD679CE-8AB4-43c8-A14A-EA4963FAA715}"
+   "Prefix"="DSK"
+   "Dll"="atapi.dll"
+   "InterruptDriven"=dword:01
+   "DMA"=dword:01
+   "DoubleBufferSize"=dword:10000
+   "DrqDataBlockSize"=dword:0
+   "WriteCache"=dword:01
+   "LookAhead"=dword:01
+   "DeviceId"=dword:03             ; device 3, i.e., secondary slave
+   "TransferMode"=dword:FF
+   "IstPriority256"=dword:61       ; SharedIRQ IST priority level
+IF PRJ_ENABLE_FSREGHIVE
+[$(PCI_BUS_ROOT)\Template\I82371_ForcedLegacy]
+    "Flags"=dword:00001000
+[$(PCI_BUS_ROOT)\Template\I82371_ForcedLegacy\Device0]
+    "Flags"=dword:00001000
+[$(PCI_BUS_ROOT)\Template\I82371_ForcedLegacy\Device1]
+    "Flags"=dword:00001000
+[$(PCI_BUS_ROOT)\Template\I82371_ForcedLegacy\Device2]
+    "Flags"=dword:00001000
+[$(PCI_BUS_ROOT)\Template\I82371_ForcedLegacy\Device3]
+    "Flags"=dword:00001000
+ENDIF PRJ_ENABLE_FSREGHIVE
+; End of the configuration block for Forced Legacy

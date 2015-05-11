@@ -1,0 +1,39 @@
+!if 0
+Copyright (c) Microsoft Corporation.  All rights reserved.
+!endif
+!if 0
+Use of this sample source code is subject to the terms of the Microsoft
+license agreement under which you licensed this sample source code. If
+you did not accept the terms of the license agreement, you are not
+authorized to use this sample source code. For the terms of the license,
+please see the license agreement between you and Microsoft or, if applicable,
+see the LICENSE.RTF on your install media or the root of your tools installation.
+THE SAMPLE SOURCE CODE IS PROVIDED "AS IS", WITH NO WARRANTIES OR INDEMNITIES.
+!endif
+
+TARGETTYPE=LIBRARY
+TARGETNAME=xhcdmdd
+
+INCLUDES=$(INCLUDES);..\..\usb3com;..;
+
+SOURCES= \
+    ..\chw.cpp \
+    ..\ceventhandler.cpp \
+    ..\cpipe.cpp \
+    ..\cring.cpp \
+    ..\ctransfer.cpp \
+    ..\cxhcd.cpp \
+
+
+OPTIMIZE_FAVOR=SPEED
+FILE_VIEW_INCLUDES_FOLDER= \
+    ..\chw.h \
+    ..\datastructures.h \
+    ..\hal.h \
+    ..\ceventhandler.h \
+    ..\cpipe.h \
+    ..\cring.h \
+    ..\ctransfer.h \
+    ..\cxhcd.h \
+
+WARNLEVEL=2

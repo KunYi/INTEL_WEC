@@ -1,0 +1,17 @@
+IF BSP_IOH_HSUART
+
+[HKEY_LOCAL_MACHINE\Drivers\BuiltIn\PCI\Template\HSUART]
+	"Dll"="hsuart.dll"
+	"Prefix"="COM"
+	"VendorID"=multi_sz:"8086","8086"
+	"DeviceID"=multi_sz:"0F0A","0F0C"
+	"DeviceArrayIndex"=dword:1
+    "IsrDll"="hsuartisr.dll"
+	"IsrHandler"="ISRHandler"
+	"RegStride"=dword:4
+	"WaterMarker"=dword:62
+	"RxBufferSize"=dword:80
+	"ForcePIO"=dword:0
+	"IClass"="{A32942B7-920C-486b-B0E6-92A702A99B35}"
+
+ENDIF BSP_IOH_HSUART

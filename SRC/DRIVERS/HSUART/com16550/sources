@@ -1,0 +1,34 @@
+!if 0
+Copyright (c) Microsoft Corporation.  All rights reserved.
+!endif
+!if 0
+Use of this sample source code is subject to the terms of the Microsoft
+license agreement under which you licensed this sample source code. If
+you did not accept the terms of the license agreement, you are not
+authorized to use this sample source code. For the terms of the license,
+please see the license agreement between you and Microsoft or, if applicable,
+see the LICENSE.RTF on your install media or the root of your tools installation.
+THE SAMPLE SOURCE CODE IS PROVIDED "AS IS", WITH NO WARRANTIES OR INDEMNITIES.
+!endif
+
+TARGETNAME=hsuart
+TARGETTYPE=DYNLINK
+RELEASETYPE=PLATFORM
+DLLENTRY=_DllEntryCRTStartup
+
+DEFFILE=com16550.def
+
+CDEFINES=$(CDEFINES) -DUSE_NEW_SERIAL_MODEL 
+INCLUDES=..\serpddcm;..\oo16550;..\isr16550;..\INC;$(INCLUDES)
+
+TARGETLIBS= \
+    $(_COMMONSDKROOT)\lib\$(_CPUINDPATH)\coredll.lib \
+    $(_COMMONOAKROOT)\lib\$(_CPUINDPATH)\ceddk.lib   \
+       
+SOURCELIBS=\
+    $(_PLATLIB)\$(_CPUDEPPATH)\com_mdd2.lib \
+    $(_PLATLIB)\$(_CPUDEPPATH)\lpss_oo16550.lib  \
+    $(_PLATLIB)\$(_CPUDEPPATH)\lpss_serpddcm.lib
+
+SOURCES= \
+        com16550.cpp

@@ -1,0 +1,75 @@
+INTEL PCI Fast Ethernet Controllers for Windows CE 7.0 KITL and EBOOT  
+=====================================================================
+
+
+November 11, 2011
+
+SUMMARY
+=======
+
+The Executables and configuration files provided enable Windows CE 7.0 
+KITL (Kernel Independent Transport Layer) and EBOOT (Booting via Ethernet) 
+support for the following Intel network devices:
+- Intel PRO/100 Fast Ethernet Controller
+
+ 
+
+This technical note provides information on installation and configuration 
+
+
+
+Package Contents
+================
+
+EBOOT.bin - Windows CE 7.0 EBOOT driver for Intel 10/100 Fast Ethernet Controller
+kitl.dll  - Windows CE 7.0 KITL  driver for Intel 10/100 Fast Ethernet Controller
+kitl.rel  - File required for Kernel Fixup
+kitl.txt  - This is support file
+
+
+
+Installation Instructions 
+========================
+
+EBOOT.BIN is a binary file used for downloading Windows CE OS image from development machine 
+to target machine. Copy EBOOT.BIN file onto Windows CE/PC boot disk. kitl.dll and kitl.rel 
+files are used for Debugging. Copy kitl.dll and kitl.rel files into DEBUG or RELEASE directory
+of Windows CE OS image. And do "Make Run-Time Image" from Windows CE Platform Builder after 
+copying is done.
+
+User can read Microsoft Windows CE documentation for more help on how to configure Ethernet 
+connection for Downloading and Debugging
+
+
+
+Legal / Disclaimers
+===================
+
+Copyright (C) 2011, Intel Corporation.  All rights reserved.
+
+This file as well as the software described in it is furnished under license 
+and may only be used or copied in accordance with the terms of the license. 
+The information in this manual is furnished for informational use only, is 
+subject to change without notice, and should not be construed as a commitment 
+by Intel Corporation. Intel Corporation assumes no responsibility or 
+liability for any errors or inaccuracies that may appear in this document or 
+any software that may be provided in association with this document. 
+
+Except as permitted by such license, no part of this document may be 
+reproduced, stored in a retrieval system, or transmitted in any form or by 
+any means without the express written consent of Intel Corporation. 
+
+Information in this document is provided in connection with Intel products. 
+No license, express or implied, by estoppels or otherwise, to any intellectual 
+property rights is granted by this document. Except as provided in Intel's 
+Terms and Conditions of Sale for such products, Intel assumes no liability 
+whatsoever, and Intel disclaims any express or implied warranty, relating to 
+sale and/or use of Intel products including liability or warranties relating 
+to fitness for a particular purpose, merchantability, or infringement of any 
+patent, copyright or other intellectual property right. Intel products are 
+not intended for use in medical, life saving, or life sustaining 
+applications.
+
+Intel Corporation assumes no responsibility for errors or omissions in this 
+document. Nor does Intel make any commitment to update the information 
+contained herein.

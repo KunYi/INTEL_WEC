@@ -1,0 +1,1526 @@
+;
+; Copyright (c) Microsoft Corporation.  All rights reserved.
+;
+;
+; Use of this sample source code is subject to the terms of the Microsoft
+; license agreement under which you licensed this sample source code. If
+; you did not accept the terms of the license agreement, you are not
+; authorized to use this sample source code. For the terms of the license,
+; please see the license agreement between you and Microsoft or, if applicable,
+; see the LICENSE.RTF on your install media or the root of your tools installation.
+; THE SAMPLE SOURCE CODE IS PROVIDED "AS IS", WITH NO WARRANTIES OR INDEMNITIES.
+;
+;/
+;
+; -- Intel Copyright Notice -- 
+;  
+; @par 
+; Copyright (c) 2002-2011 Intel Corporation All Rights Reserved. 
+;  
+; @par 
+; The source code contained or described herein and all documents 
+; related to the source code ("Material") are owned by Intel Corporation 
+; or its suppliers or licensors.  Title to the Material remains with 
+; Intel Corporation or its suppliers and licensors. 
+;  
+; @par 
+; The Material is protected by worldwide copyright and trade secret laws 
+; and treaty provisions. No part of the Material may be used, copied, 
+; reproduced, modified, published, uploaded, posted, transmitted, 
+; distributed, or disclosed in any way except in accordance with the 
+; applicable license agreement . 
+;  
+; @par 
+; No license under any patent, copyright, trade secret or other 
+; intellectual property right is granted to or conferred upon you by 
+; disclosure or delivery of the Materials, either expressly, by 
+; implication, inducement, estoppel, except in accordance with the 
+; applicable license agreement. 
+;  
+; @par 
+; Unless otherwise agreed by Intel in writing, you may not remove or 
+; alter this notice or any other notice embedded in Materials by Intel 
+; or Intel's suppliers or licensors in any way. 
+;  
+; @par 
+; For further details, please see the file README.TXT distributed with 
+; this software. 
+;  
+; @par 
+; -- End Intel Copyright Notice -- 
+;  
+
+#define BUILTIN_ROOT    HKEY_LOCAL_MACHINE\Drivers\BuiltIn
+#define DRIVERS_DIR     $(_PUBLICROOT)\common\oak\drivers
+#define PCI_BUS_ROOT    $(BUILTIN_ROOT)\PCI
+#define PLATFORM_DRIVERS_DIR $(_TARGETPLATROOT)\src\drivers
+
+;== Common part, shared between different _TGTPROJ =============================
+
+;-- Shared KITL IRQ ------------------------------------------------------------
+; This key controls disables IRQ sharing with the KITL NIC.
+; IRQ sharing with the KITL NIC can cause debugger hangs if
+; there is a small flaw in any driver or hardware on that IRQ.
+; @XIPREGION IF PACKAGE_OEMXIPKERNEL
+; HIVE BOOT SECTION
+IF BSP_ALLOWKITLSHAREDIRQ !
+[HKEY_LOCAL_MACHINE\Platform]
+    "DisableKITLSharedIRQ"=dword:1
+ENDIF BSP_ALLOWKITLSHAREDIRQ
+; END HIVE BOOT SECTION
+; @XIPREGION ENDIF PACKAGE_OEMXIPKERNEL
+;-------------------------------------------------------------------------------
+
+;-------------------------------------------------------------------------------
+; @CESYSGEN IF CE_MODULES_DEVICE
+;;;; Entering this system power state shuts down the system.  All devices are powered off,
+;;;; resuming may require user intervention.  The system will cold boot on resume.
+;;;; Supporting this power state requires that the OEM customize the Power Manager
+;;;; to recognize POWER_STATE_OFF and take platform-specific action to remove
+;;;; power.
+;;;;
+[HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Power\State\ShutDown]
+    "Default"=dword:4           ; D4
+    "Flags"=dword:20000         ; POWER_STATE_OFF
+
+; Resources available at time of device.exe initialization.
+; Key names are descriptive; resource ids are definitive.
+; System ids are defined in ddk\inc\resmgr.h.
+
+;-- Resource Manager Configuration ---------------------------------------------
+; HIVE BOOT SECTION
+[HKEY_LOCAL_MACHINE\Drivers\Resources\IRQ]
+    "Identifier"=dword:1
+    "Minimum"=dword:1
+    "Space"=dword:F
+    "Ranges"="1,3-7,9-0xF"
+    "Shared"="1,3-7,9-0xF"
+
+[HKEY_LOCAL_MACHINE\Drivers\Resources\IO]
+    "Identifier"=dword:2
+    "Minimum"=dword:0
+    "Space"=dword:10000
+    "Ranges"="0-0x5F,0x65-0x277,0x284-0x38F,0x392-0x3DF,0x3E2-0xFFFF"
+IF BSP_SERIAL1
+    "Ranges"="0-0x5F,0x65-0x277,0x284-0x2F7,0x300-0x38F,0x392-0x3DF,0x3E2-0xFFFF"
+ENDIF BSP_SERIAL1
+IF BSP_SERIAL2
+    "Ranges"="0-0x5F,0x65-0x277,0x284-0x2F7,0x300-0x38F,0x392-0x3DF,0x3E2-0x3E7,0x3F0-0xFFFF"
+ENDIF BSP_SERIAL2
+IF BSP_SERIAL3
+    "Ranges"="0-0x5F,0x65-0x277,0x284-0x2E7,0x2F0-0x2F7,0x300-0x38F,0x392-0x3DF,0x3E2-0x3E7,0x3F0-0xFFFF"
+ENDIF BSP_SERIAL3
+
+
+; END HIVE BOOT SECTION
+;-------------------------------------------------------------------------------
+
+;-- 8237 DMA -------------------------------------------------------------------
+; @XIPREGION IF PACKAGE_OEMDRIVERS
+[HKEY_LOCAL_MACHINE\Drivers\Builtin\DMA]
+    "Prefix"="DMA"
+    "Index"=dword:1
+    "ResetOnResume"=dword:1
+    "Priority256"=dword:110
+    "IClass"="{52729EFF-F9F8-4894-B450-AFAFC5D5E96D}"
+    "Dll"="dma8237_x86_ms_v1.dll"
+    "Order"=dword:0
+    "MemBase"=dword:100000
+    "MemLen" =dword:30000
+    "EnableMemoryToMemory"=dword:1
+
+[HKEY_LOCAL_MACHINE\Drivers\DMA]
+    "DriversName"="DMA1:"
+; @XIPREGION ENDIF PACKAGE_OEMDRIVERS
+;-------------------------------------------------------------------------------
+
+;-- NE2000 ISA -----------------------------------------------------------------
+; @CESYSGEN IF CE_MODULES_NDIS
+; @CESYSGEN IF CE_MODULES_NE2000
+; @XIPREGION IF PACKAGE_OEMDRIVERS
+IF BSP_NOETHER !
+IF BSP_NIC_NE2000_ISA
+; These are the registry settings for using the Linksys ISA NE2000 ethernet
+; adapter on a CEPC. "BusType=1" => ISA, InterruptNumber and IoBaseAddress
+; a Linksys setup utility. 
+
+[HKEY_LOCAL_MACHINE\Comm\NE2000]
+    "Group"="NDIS"
+    "ImagePath"="ne2000.dll"
+
+[HKEY_LOCAL_MACHINE\Comm\NE2000\Linkage]
+    "Route"=multi_sz:"NE20001"
+
+[HKEY_LOCAL_MACHINE\Comm\NE20001]
+    "Group"="NDIS"
+    "ImagePath"="ne2000.dll"
+
+[HKEY_LOCAL_MACHINE\Comm\NE20001\Parms]
+    "BusNumber"=dword:0
+    "BusType"=dword:1
+    "InterruptNumber"=dword:0f
+    "IoBaseAddress"=dword:300
+    "Transceiver"=dword:3
+    "Sysintr"=dword:1f ; <-- This assumes the adapter will use IRQ 15
+
+ENDIF BSP_NIC_NE2000_ISA
+ENDIF BSP_NOETHER !
+; @XIPREGION ENDIF PACKAGE_OEMDRIVERS
+; @CESYSGEN ENDIF CE_MODULES_NE2000
+; @CESYSGEN ENDIF CE_MODULES_NDIS
+;-------------------------------------------------------------------------------
+
+;-- 16550 UART -----------------------------------------------------------------
+; @CESYSGEN IF CE_MODULES_SERIAL
+IF BSP_NOSERIAL !
+
+; @XIPREGION IF PACKAGE_OEMXIPKERNEL
+; HIVE BOOT SECTION
+; During load, we check the SerialDbgX regkey, where X is the physical
+; COM port selected for serial debug output. Then we disable the serial
+; driver of the corresponding value. Be sure that the pointed-to driver
+; is associated with the same physical COM port (IOBase value).
+[HKEY_LOCAL_MACHINE\Drivers\BootArg]
+IF BSP_SERIAL1
+    "SerialDbg1"="Drivers\\BuiltIn\\Serial1"
+ENDIF BSP_SERIAL1
+IF BSP_SERIAL2
+    "SerialDbg2"="Drivers\\BuiltIn\\Serial2"
+ENDIF BSP_SERIAL2
+IF BSP_SERIAL3
+    "SerialDbg3"="Drivers\\BuiltIn\\Serial3"
+ENDIF BSP_SERIAL3
+; END HIVE BOOT SECTION
+; @XIPREGION ENDIF PACKAGE_OEMXIPKERNEL
+
+; @XIPREGION IF PACKAGE_OEMDRIVERS
+
+IF BSP_SERIAL1
+[HKEY_LOCAL_MACHINE\Drivers\BuiltIn\Serial1]
+    "Flags"=dword:0010            ; User Mode: DEVFLAGS_LOAD_AS_USERPROC
+    "Dll"="Com16550.Dll"
+    "Prefix"="COM"
+    "Order"=dword:0
+    "Index"=dword:1
+    "SysIntr"=dword:14
+    ;COM debug port IOBase=0x3F8 (per BIOS settings)
+    "IoBase"=dword:03F8
+    "IoLen"=dword:8
+    "DeviceArrayIndex"=dword:1
+    "IClass"="{CC5195AC-BA49-48a0-BE17-DF6D1B0173DD}"
+    "UserProcGroup"=dword:$(PROCGROUP_DRIVER_MSFT_DEFAULT)
+IF IMGENFORA
+    ; Turn on installable ISR (isr16550 supporting SOFTWARE FIFO)
+    "Flags"=dword:0                 ; Kernel Mode
+    "Irq"=dword:3
+    "IsrDll"="isr16550.dll"
+    "IsrHandler"="ISRHandler"
+ENDIF IMGENFORA
+
+[HKEY_LOCAL_MACHINE\Drivers\BuiltIn\Serial1\Unimodem]
+    "Tsp"="Unimodem.dll"
+    "DeviceType"=dword:0
+    "DevConfig"=hex: 10,00, 00,00, 05,00,00,00, 10,01,00,00, 00,4B,00,00, 00,00, 08, 00, 00, 00,00,00,00
+
+[HKEY_LOCAL_MACHINE\Drivers\BuiltIn\Serial1\HayesCompat]
+    "Tsp"="Unimodem.dll"
+    "DeviceType"=dword:1
+ENDIF BSP_SERIAL1
+
+IF BSP_SERIAL2
+[HKEY_LOCAL_MACHINE\Drivers\BuiltIn\Serial2]
+    "Flags"=dword:0010            ; User Mode: DEVFLAGS_LOAD_AS_USERPROC
+    "Dll"="Com16550.Dll"
+    "Prefix"="COM"
+    "Order"=dword:1
+    "Index"=dword:2
+    "SysIntr"=dword:13
+    "IoBase"=dword:02F8
+    "IoLen"=dword:8
+    "DeviceArrayIndex"=dword:0
+    "IClass"="{CC5195AC-BA49-48a0-BE17-DF6D1B0173DD}"
+    "UserProcGroup"=dword:$(PROCGROUP_DRIVER_MSFT_DEFAULT)
+IF IMGENFORA_COM2
+    ; Turn on installable ISR (isr16550 supporting SOFTWARE FIFO)
+    "Flags"=dword:0                 ; Kernel Mode
+    "Irq"=dword:3
+    "IsrDll"="isr16550.dll"
+    "IsrHandler"="ISRHandler"
+ENDIF
+
+[HKEY_LOCAL_MACHINE\Drivers\BuiltIn\Serial2\Unimodem]
+    "Tsp"="Unimodem.dll"
+    "DeviceType"=dword:0
+    "DevConfig"=hex: 10,00, 00,00, 05,00,00,00, 10,01,00,00, 00,4B,00,00, 00,00, 08, 00, 00, 00,00,00,00
+
+[HKEY_LOCAL_MACHINE\Drivers\BuiltIn\Serial2\HayesCompat]
+    "Tsp"="Unimodem.dll"
+    "DeviceType"=dword:1
+ENDIF BSP_SERIAL2
+
+IF BSP_SERIAL3
+[HKEY_LOCAL_MACHINE\Drivers\BuiltIn\Serial3]
+    "Flags"=dword:0010            ; User Mode: DEVFLAGS_LOAD_AS_USERPROC
+    "Dll"="Com16550.Dll"
+    "Prefix"="COM"
+    "Order"=dword:2
+    "Index"=dword:3
+    "SysIntr"=dword:15
+    "IoBase"=dword:02E8
+    "IoLen"=dword:8
+    "DeviceArrayIndex"=dword:2
+    "IClass"="{CC5195AC-BA49-48a0-BE17-DF6D1B0173DD}"
+    "UserProcGroup"=dword:$(PROCGROUP_DRIVER_MSFT_DEFAULT)
+
+[HKEY_LOCAL_MACHINE\Drivers\BuiltIn\Serial3\Unimodem]
+    "Tsp"="Unimodem.dll"
+    "DeviceType"=dword:0
+    "DevConfig"=hex: 10,00, 00,00, 05,00,00,00, 10,01,00,00, 00,4B,00,00, 00,00, 08, 00, 00, 00,00,00,00
+
+[HKEY_LOCAL_MACHINE\Drivers\BuiltIn\Serial3\HayesCompat]
+    "Tsp"="Unimodem.dll"
+    "DeviceType"=dword:1
+ENDIF BSP_SERIAL3
+
+; @XIPREGION ENDIF PACKAGE_OEMDRIVERS
+
+ENDIF BSP_NOSERIAL !
+; @CESYSGEN ENDIF CE_MODULES_SERIAL
+;-------------------------------------------------------------------------------
+
+;-- Parallel port --------------------------------------------------------------
+; @CESYSGEN IF CE_MODULES_PARALLEL
+; @XIPREGION IF PACKAGE_OEMDRIVERS
+IF BSP_NOPARALLEL !
+
+[HKEY_LOCAL_MACHINE\Drivers\BuiltIn\Parallel]
+    "DeviceArrayIndex"=dword:0
+    "Prefix"="LPT"
+    "Dll"="Parallel.Dll"
+    "Order"=dword:0
+    "IoBase"=dword:378
+    "IoLen"=dword:C
+    "SysIntr"=dword:17 ; SYSINTR_FIRMWARE + irq (IRQ5 for LPT2, IRQ7 for LPT1)
+    "DeviceType"=dword:0
+    "DevConfig"=hex: 10,00, 00,00, 05,00,00,00, 10,01,00,00, 00,4B,00,00, 00,00, 08, 00, 00, 00,00,00,00
+    "IClass"="{4FE1CEF1-E765-4a1e-B503-5B8C674D7C68}"
+
+ENDIF BSP_NOPARALLEL !
+; @XIPREGION ENDIF PACKAGE_OEMDRIVERS
+; @CESYSGEN ENDIF CE_MODULES_PARALLEL
+;-------------------------------------------------------------------------------
+
+;-- Virtual PC Sound Blaster 16 ------------------------------------------------
+; @CESYSGEN IF CE_MODULES_WAVEAPI
+; @XIPREGION IF PACKAGE_OEMDRIVERS
+IF BSP_NOAUDIO !
+IF BSP_WAVEDEV_SB16
+#include "$(_TARGETPLATROOT)\src\drivers\VirtualPC\wavedev2_sb16\sb16.reg"
+ENDIF BSP_WAVEDEV_SB16
+ENDIF BSP_NOAUDIO !
+; @XIPREGION ENDIF PACKAGE_OEMDRIVERS
+; @CESYSGEN ENDIF CE_MODULES_WAVEAPI
+;-------------------------------------------------------------------------------
+
+;-- PCI Bus --------------------------------------------------------------------
+; @CESYSGEN IF CE_MODULES_PCI
+IF BSP_NOPCIBUS !
+
+; @XIPREGION IF PACKAGE_OEMXIPKERNEL
+; HIVE BOOT SECTION
+[HKEY_LOCAL_MACHINE\Drivers\BuiltIn\PCI]
+    "NoConfig"=dword:1
+    "MemBase"=dword:80000000
+    "MemLen" =dword:7f000000
+    "IoBase"=dword:8000
+    "IoLen" =dword:8000
+#include "$(DRIVERS_DIR)\pcibus\pcibus.reg"
+
+IF BSP_NOCFGPCIPCIBRIDGE
+; Because the BIOS configure the PCI-PCI bridge and it is different from
+; how we configured we cannot touch the window. Set NoConfig to all
+; PCI to PCI Bridge to indicate PCiBus do not configure PCI-PCI bridge window.
+;
+[HKEY_LOCAL_MACHINE\Drivers\BuiltIn\PCI\Template\PCI-PCI-BRIDGE]
+    "Class"=dword:06
+    "SubClass"=dword:04
+    "NoConfig"=dword:1
+ENDIF BSP_NOCFGPCIPCIBRIDGE
+
+; END HIVE BOOT SECTION
+; @XIPREGION ENDIF PACKAGE_OEMXIPKERNEL
+
+ENDIF BSP_NOPCIBUS !
+; @CESYSGEN ENDIF CE_MODULES_PCI
+;-------------------------------------------------------------------------------
+
+;-- ATAPI @ PCI bus ------------------------------------------------------------
+; @CESYSGEN IF CE_MODULES_ATAPI
+; @XIPREGION IF PACKAGE_OEMXIPKERNEL
+; HIVE BOOT SECTION
+IF BSP_NOIDE !
+
+IF BSP_STORAGE_I82371
+; @CESYSGEN IF ATAPI_ATAPI_PCIO
+    #include "$(PLATFORM_DRIVERS_DIR)\block\atapi\I82371.reg"
+; @CESYSGEN ENDIF ATAPI_ATAPI_PCIO
+ENDIF BSP_STORAGE_I82371
+
+ENDIF BSP_NOIDE !
+; END HIVE BOOT SECTION
+; @XIPREGION ENDIF PACKAGE_OEMXIPKERNEL
+; @CESYSGEN ENDIF CE_MODULES_ATAPI
+;-------------------------------------------------------------------------------
+
+;-- NAND Flash Card @ PCI bus ------------------------------------------------------------
+; @CESYSGEN IF CE_MODULES_FLASHPDD_SDNPCI
+; HIVE BOOT SECTION
+[HKEY_LOCAL_MACHINE\System\StorageManager\Profiles\MSFlash]
+    "Folder"="Flash Disk"
+    "AutoPart"=dword:1
+    "AutoFormat"=dword:1
+    "PartitionDriver"="flashpart.dll"
+
+[HKEY_LOCAL_MACHINE\Drivers\BuiltIn\PCI\Instance\NAND_Flash]
+    "Profile"="MSFlash"
+    "IClass"=multi_sz:"{A4E7EDDA-E575-4252-9D6B-4195D48BB865}"
+    "Order"=dword:0
+    "FriendlyName"="SD NAND FLASH Driver"
+    "Dll"="flashmdd.dll"
+    "FlashPddDll"="flashpdd_sdnpci.dll"
+    "Prefix"="DSK"
+
+[HKEY_LOCAL_MACHINE\System\StorageManager\AutoLoad\sdnpcid]
+    "DriverPath"="Drivers\\BuiltIn\\PCI\\Instance\\NAND_Flash"
+    "LoadFlags"=dword:1
+    "Order"=dword:0
+; END HIVE BOOT SECTION
+; @CESYSGEN ENDIF CE_MODULES_FLASHPDD_SDNPCI
+;-------------------------------------------------------------------------------
+
+;-- Audio Cards @ PCI bus ------------------------------------------------------
+; @CESYSGEN IF CE_MODULES_PCI
+; @CESYSGEN IF CE_MODULES_WAVEAPI
+; @XIPREGION IF PACKAGE_OEMDRIVERS
+IF BSP_NOAUDIO !
+
+IF BSP_WAVEDEV_ES1371
+#include "$(DRIVERS_DIR)\wavedev\pdd\es1371\es1371.reg"
+ENDIF BSP_WAVEDEV_ES1371
+
+IF BSP_WAVEDEV_WAVEDEV2_ENSONIQ
+#include "$(DRIVERS_DIR)\wavedev\wavedev2\ensoniq\wavedev2_ensoniq.reg"
+[HKEY_LOCAL_MACHINE\Drivers\BuiltIn\PCI\Template\Ensoniq]
+   "Index"=dword:1
+ENDIF BSP_WAVEDEV_WAVEDEV2_ENSONIQ
+
+IF BSP_WAVEDEV_WAVEDEV2_VIRTUAL
+; loads if no other audio driver loaded.
+[HKEY_LOCAL_MACHINE\Drivers\BuiltIn\wavedev2_virtual]
+   "Index"=dword:1
+   ;"DependsOn"=multi_sz:"Drivers\\BuiltIn\\PCI"
+   "Order"=dword:21 ; loads after sound blaster and pci bus
+ENDIF BSP_WAVEDEV_WAVEDEV2_VIRTUAL
+
+
+IF BSP_WAVEDEV_SIS7019
+  ; sis7019.dll - Wavedev2 Audio Driver Model
+[$(PCI_BUS_ROOT)\Template\sis7019]
+    "Prefix"="WAV"
+    "Dll"="sis7019.dll"
+    "Order"=dword:0
+    "Class"=dword:04
+    "SubClass"=dword:01
+    "ProgIF"=dword:00
+    "VendorID"=multi_sz:"1039","1039"
+    "DeviceID"=multi_sz:"7019","7019"
+    "IsrDll"="giisr.dll"
+    "IsrHandler"="ISRHandler"
+    "IClass"=multi_sz: "{E92BC203-8354-4043-A06F-2A170BF6F227}",
+                       "{37168569-61C4-45fd-BD54-9442C7DBA46F}"
+ENDIF BSP_WAVEDEV_SIS7019
+
+IF BSP_WAVEDEV_ICHHDA
+    #include "$(_TARGETPLATROOT)\SRC\DRIVERS\ICHHDA\ichhda.reg"
+ENDIF BSP_WAVEDEV_ICHHDA
+
+
+ENDIF BSP_NOAUDIO !
+
+; @XIPREGION ENDIF PACKAGE_OEMDRIVERS
+; @CESYSGEN ENDIF CE_MODULES_WAVEAPI
+; @CESYSGEN ENDIF CE_MODULES_PCI
+;-------------------------------------------------------------------------------
+;-- IOH Drivers --------------------------------------------------------------
+IF BSP_IOH_GPIO
+    #include "$(_TARGETPLATROOT)\SRC\DRIVERS\GPIO\Common\gpio.reg"
+ENDIF BSP_IOH_GPIO
+;-------------------------------------------------------------------------------
+;-- USB controllers @ PCI bus --------------------------------------------------
+; @CESYSGEN IF CE_MODULES_PCI
+; @CESYSGEN IF CE_MODULES_USBD
+; @XIPREGION IF PACKAGE_OEMDRIVERS
+IF BSP_NOUSB !
+
+IF BSP_USB_OHCI
+#include "$(DRIVERS_DIR)\usb\hcd\ohc\ohci.reg"
+ENDIF BSP_USB_OHCI
+
+IF BSP_USB_UHCI
+#include "$(DRIVERS_DIR)\usb\hcd\uhc\uhci.reg"
+ENDIF BSP_USB_UHCI
+
+IF BSP_USB_EHCI
+IF IMGEHCICERT
+#include "$(DRIVERS_DIR)\usb\hcd\usb20\ehcipdd\ehcdcert.reg"
+ELSE
+#include "$(DRIVERS_DIR)\usb\hcd\usb20\ehcipdd\ehcd.reg"
+ENDIF IMGEHCICERT
+ENDIF BSP_USB_EHCI
+
+IF BSP_USB_EHCI_ICEG
+    #include "$(_TARGETPLATROOT)\SRC\DRIVERS\usb\ehcd_iceg.reg"
+ENDIF
+
+IF BSP_USB_XHCI
+#include "$(_TARGETPLATROOT)\SRC\DRIVERS\USB30\xhcipdd\xhcd.reg"
+ENDIF BSP_USB_XHCI
+
+ENDIF BSP_NOUSB !
+; @XIPREGION ENDIF PACKAGE_OEMDRIVERS
+; @CESYSGEN ENDIF CE_MODULES_USBD
+; @CESYSGEN ENDIF CE_MODULES_PCI
+;-------------------------------------------------------------------------------
+
+;-- Network cards @ PCI bus ----------------------------------------------------
+; @CESYSGEN IF CE_MODULES_PCI
+; @CESYSGEN IF CE_MODULES_NDIS
+; @XIPREGION IF PACKAGE_OEMDRIVERS
+IF BSP_NOETHER !
+
+IF BSP_NIC_DC21X4
+#include "$(_TARGETPLATROOT)\src\drivers\VirtualPC\ndis_dc21x4\dc21x4.reg"
+ENDIF BSP_NIC_DC21X4
+
+ENDIF BSP_NOETHER !
+; @XIPREGION ENDIF PACKAGE_OEMDRIVERS
+; @CESYSGEN ENDIF CE_MODULES_NDIS
+; @CESYSGEN ENDIF CE_MODULES_PCI
+;-------------------------------------------------------------------------------
+
+;-- I2C @ PCI bus ----------------------------------------------------
+; @CESYSGEN IF CE_MODULES_PCI
+
+
+IF BSP_IOH_I2C
+	#include "$(_TARGETPLATROOT)\SRC\DRIVERS\I2C\i2c.reg"
+ENDIF BSP_IOH_I2C
+
+; @CESYSGEN ENDIF CE_MODULES_PCI
+;-------------------------------------------------------------------------------
+
+
+;-- SPI @ PCI bus ----------------------------------------------------
+; @CESYSGEN IF CE_MODULES_PCI
+
+IF BSP_IOH_SPI
+	#include "$(_TARGETPLATROOT)\SRC\DRIVERS\SPI\spi.reg"
+ENDIF BSP_IOH_SPI
+
+; @CESYSGEN ENDIF CE_MODULES_PCI
+;-------------------------------------------------------------------------------
+;-- High Speed UART @ PCI bus ----------------------------------------------------
+; @CESYSGEN IF CE_MODULES_PCI
+
+IF BSP_IOH_HSUART
+	#include "$(_TARGETPLATROOT)\SRC\DRIVERS\HSUART\hsuart.reg"
+ENDIF BSP_IOH_HSUART
+; @CESYSGEN ENDIF CE_MODULES_PCI
+;-------------------------------------------------------------------------------
+
+;-- DMA @ PCI bus ----------------------------------------------------
+; @CESYSGEN IF CE_MODULES_PCI
+
+IF BSP_LPSS_DMA
+	#include "$(_TARGETPLATROOT)\SRC\DRIVERS\DMA\LPSSDMA\lpssdma.reg"
+ENDIF BSP_LPSS_DMA
+; @CESYSGEN ENDIF CE_MODULES_PCI
+;-------------------------------------------------------------------------------
+
+;-- Display drivers @ PCI bus --------------------------------------------------
+; @CESYSGEN IF CE_MODULES_PCI
+; @CESYSGEN IF CE_MODULES_DISPLAY
+; @XIPREGION IF PACKAGE_OEMDRIVERS
+IF BSP_NODISPLAY !
+
+; GWES will be able to auto-detect the display adapter if a candidate value
+; points to the adapter's PCI instance.  Values from Candidate1 to Candidate32
+; (decimal) are possible; GWES will examine them sequentially until it finds
+; a match.
+
+IF BSP_DISPLAY_RAGEXL
+[HKEY_LOCAL_MACHINE\System\GDI\DisplayCandidates]
+    "Candidate2"="Drivers\\BuiltIn\\PCI\\Instance\\RageXL"
+    
+#include "$(DRIVERS_DIR)\display\ragexl\ragexl.reg"
+ENDIF BSP_DISPLAY_RAGEXL
+
+; include the path to the emgd.reg file in the release package
+;#include C:\ssigd\vlv_wec7\ial\ce\project\emgd.reg
+
+ENDIF BSP_NODISPLAY !
+; @XIPREGION ENDIF PACKAGE_OEMDRIVERS
+; @CESYSGEN ENDIF CE_MODULES_DISPLAY
+; @CESYSGEN ENDIF CE_MODULES_PCI
+;-------------------------------------------------------------------------------
+
+;-- Battery driver -------------------------------------------------------------
+; @CESYSGEN IF CE_MODULES_BATTDRVR
+; @XIPREGION IF PACKAGE_OEMDRIVERS
+#include "$(DRIVERS_DIR)\battdrvr\battdrvr.reg"
+; @XIPREGION ENDIF PACKAGE_OEMDRIVERS
+; @CESYSGEN ENDIF CE_MODULES_BATTDRVR
+;-------------------------------------------------------------------------------
+
+;-- NLed driver ----------------------------------------------------------------
+; @CESYSGEN IF CE_MODULES_NLEDDRVR
+; @XIPREGION IF PACKAGE_OEMDRIVERS
+#include "$(DRIVERS_DIR)\nleddrvr\nleddrvr.reg"
+; @XIPREGION ENDIF PACKAGE_OEMDRIVERS
+; @CESYSGEN ENDIF CE_MODULES_NLEDDRVR
+;-------------------------------------------------------------------------------
+
+; @CESYSGEN ENDIF CE_MODULES_DEVICE
+;-------------------------------------------------------------------------------
+
+; @CESYSGEN IF CE_MODULES_USBDISK6
+; @XIPREGION IF WM_PACKAGES_USBSTORAGEHOST
+[HKEY_LOCAL_MACHINE\System\StorageManager\Profiles\USBHDProfile]
+    "Name"="USB Hard Disk Drive"
+    "Folder"="USB Hard Disk"
+
+; @XIPREGION ENDIF WM_PACKAGES_USBSTORAGEHOST
+; @CESYSGEN ENDIF CE_MODULES_USBDISK6
+
+
+; @CESYSGEN IF CE_MODULES_SDHC
+[HKEY_LOCAL_MACHINE\Drivers\BuiltIn\PCI\Template\SDIOStandardHCWithDMA]
+   "VendorID"=multi_sz:"8086","8086"
+   "DeviceID"=multi_sz:"0F50","0F16"
+
+; @CESYSGEN ENDIF CE_MODULES_SDHC
+;-------------------------------------------------------------------------------
+IF MAKEIMG_BIN_FORMAT=imageupdate
+
+;-------------------------------------------------------------------------------
+; @CESYSGEN IF FILESYS_FSREGHIVE
+; @CESYSGEN IF CE_MODULES_DEVICE
+; @CESYSGEN IF CE_MODULES_ATAPI
+; @CESYSGEN IF CE_MODULES_FSDMGR
+; @CESYSGEN IF CE_MODULES_FILESYS
+; @CESYSGEN IF !FILESYS_FSYSRAM
+;
+; We want start both storage and device manager. Flags value is combination of
+;   0x0001  Start storage manager in boot phases 0 and 1 to load the boot
+;           file system.
+;   0x0002  Start device manager in boot phase 1 to load the boot file system.
+;   0x0004  Start storage manager in boot phases 0 and 1 to load an external
+;           ROM file system containing ROM hive files (system.hv/user.hv).
+;   0x0008  Start device manager in boot phase 1 to load an external ROM file
+;           system containing ROM hive files (system.hv/user.hv).
+;
+; @XIPREGION IF PACKAGE_OEMXIPKERNEL
+; HIVE BOOT SECTION
+[HKEY_LOCAL_MACHINE\Init\BootVars]
+    "Flags"=dword:0000000F
+; END HIVE BOOT SECTION
+; @XIPREGION ENDIF PACKAGE_OEMXIPKERNEL
+;-------------------------------------------------------------------------------
+
+;-------------------------------------------------------------------------------
+; @XIPREGION IF PACKAGE_OEMXIPKERNEL
+[HKEY_LOCAL_MACHINE\System\StorageManager\Profiles\HDProfile]
+    "MountPermanent"=dword:1
+    "BootPhase"=dword:1
+    "Order"=dword:0
+    "Folder"=-
+    "Name"=-
+
+[HKEY_LOCAL_MACHINE\System\StorageManager\Profiles\HDProfile\IMGFS]
+    "MountAsROM"=dword:1
+    "MountHidden"=dword:1
+    "MountAsRoot"=dword:0
+    "MountAsBootable"=dword:0
+
+[HKEY_LOCAL_MACHINE\System\StorageManager\Profiles\HDProfile\FATFS]
+    "MountAsRoot"=dword:1
+    "MountAsBootable"=dword:1
+    "MountAsROM"=dword:0
+    "MountHidden"=dword:0
+    "FormatTFat"=dword:1
+    "CheckForFormat"=dword:1
+    "DisableAutoFormat"=dword:0
+    "EnableWriteBack"=dword:1
+; @XIPREGION ENDIF PACKAGE_OEMXIPKERNEL
+;-------------------------------------------------------------------------------
+
+;-------------------------------------------------------------------------------
+; @CESYSGEN IF CE_MODULES_RAMFMD
+; HIVE BOOT SECTION
+[HKEY_LOCAL_MACHINE\System\StorageManager\Profiles\MSFlash_RAMFMD]
+    "Folder"=-
+    "AutoPart"=-
+    "AutoFormat"=-
+
+[HKEY_LOCAL_MACHINE\System\StorageManager\AutoLoad\RAMFMD]
+    "DriverPath"=-
+    "LoadFlags"=-
+
+[HKEY_LOCAL_MACHINE\Drivers\BlockDevice\RAMFMD]
+    "Dll"=-
+    "Profile"=-
+    "Prefix"=-
+    "IClass"=-
+; END HIVE BOOT SECTION
+; @CESYSGEN ENDIF CE_MODULES_RAMFMD
+;-------------------------------------------------------------------------------
+
+; @CESYSGEN ENDIF !FILESYS_FSYSRAM
+; @CESYSGEN ENDIF CE_MODULES_FILESYS
+; @CESYSGEN ENDIF CE_MODULES_FSDMGR
+; @CESYSGEN ENDIF CE_MODULES_ATAPI
+; @CESYSGEN ENDIF CE_MODULES_DEVICE
+; @CESYSGEN ENDIF FILESYS_FSREGHIVE
+;-------------------------------------------------------------------------------
+
+ENDIF MAKEIMG_BIN_FORMAT=imageupdate
+;-------------------------------------------------------------------------------
+
+;-------------------------------------------------------------------------------
+IF MAKEIMG_BIN_FORMAT=hybrid
+
+;-------------------------------------------------------------------------------
+; @CESYSGEN IF FILESYS_FSREGHIVE
+; @CESYSGEN IF CE_MODULES_RAMFMD
+; @CESYSGEN IF CE_MODULES_FSDMGR
+; @CESYSGEN IF CE_MODULES_FILESYS
+; @CESYSGEN IF !FILESYS_FSYSRAM
+
+; @XIPREGION IF PACKAGE_OEMXIPKERNEL
+; HIVE BOOT SECTION
+
+; Start storage manager in boot phases 0 and 1 to load the boot file system.
+[HKEY_LOCAL_MACHINE\init\BootVars]
+    "Flags"=dword:1
+
+; Load RAMFMD in boot phase 0
+[HKEY_LOCAL_MACHINE\System\StorageManager\AutoLoad\RAMFMD]
+    "BootPhase"=dword:0
+
+; These must match RESERVED region in config.bib
+[HKEY_LOCAL_MACHINE\Drivers\BlockDevice\RAMFMD]
+    "Address"=dword:80220000
+    "Size"=dword:2000000
+
+; Mount RAMFMD as root file system + hive storage, format TFAT
+[HKEY_LOCAL_MACHINE\System\StorageManager\Profiles\MSFlash_RAMFMD\FATFS]
+    "MountFlags"=dword:6
+    "FormatTfat"=dword:1
+    "CheckForFormat"=dword:1
+
+; In case a hard drive is present with an imageupdate-style build, 
+; disable IMGFS from shadowing ROM
+[HKEY_LOCAL_MACHINE\System\StorageManager\Profiles\HDProfile\IMGFS]
+    "MountAsROM"=dword:0
+    "MountHidden"=dword:1
+
+[HKEY_LOCAL_MACHINE\System\StorageManager\IMGFS]
+    "ShadowROM"=dword:0
+
+; END HIVE BOOT SECTION
+; @XIPREGION ENDIF PACKAGE_OEMXIPKERNEL
+
+; @CESYSGEN IF CE_MODULES_FSREPLXFILT
+; @XIPREGION IF PACKAGE_OEMXIPKERNEL
+; HIVE BOOT SECTION
+[HKEY_LOCAL_MACHINE\System\StorageManager\Profiles\MSFlash_RAMFMD\FATFS\Filters\fsreplxfilt]
+    "Dll"="fsreplxfilt.dll"
+    "Order"=dword:1 ; must be loaded before other filters
+; END HIVE BOOT SECTION
+; @XIPREGION ENDIF PACKAGE_OEMXIPKERNEL
+; @CESYSGEN ENDIF CE_MODULES_FSREPLXFILT
+
+; @CESYSGEN ENDIF !FILESYS_FSYSRAM
+; @CESYSGEN ENDIF CE_MODULES_FILESYS
+; @CESYSGEN ENDIF CE_MODULES_FSDMGR
+; @CESYSGEN ENDIF CE_MODULES_RAMFMD
+; @CESYSGEN ENDIF FILESYS_FSREGHIVE
+;-------------------------------------------------------------------------------
+
+ENDIF MAKEIMG_BIN_FORMAT=hybrid
+;-------------------------------------------------------------------------------
+
+;-- Pointer --------------------------------------------------------------------
+; @CESYSGEN IF CE_MODULES_POINTER
+; @XIPREGION IF PACKAGE_OEMDRIVERS
+
+[HKEY_LOCAL_MACHINE\SYSTEM\GWE\UserInput]
+;indicate whether mouse input automatically becomes touch input for the gesture engine
+"PromoteMouseInputToTouchInput"=dword:1
+;allow the touch type reported by the touch driver to be overriden. This only
+;occurs if the touch driver reports TOUCHTYPE_NOTOUCH (0). Can be TOUCHTYPE_NOTOUCH (0)
+;TOUCHTYPE_SINGLETOUCH (1), TOUCHTYPE_SYMMETRICTOUCH (2), or TOUCHTYPE_MULTITOUCH (3)
+;By default on CEPC tchproxy is loaded, but no touch driver is loaded, so
+;TOUCHTYPE_NOTOUCH is reported, so the override is used. This value is only queried
+;once.
+"OverrideDriverTouchType"=dword:1
+
+; how long touch proxy will wait for touch driver to load
+[HKEY_LOCAL_MACHINE\SYSTEM\GWE\TouchProxy]
+    "DriverLoadTimeoutMs"=dword:1388 ; 5 seconds
+
+; Set custom flick gesture settings
+[HKEY_CURRENT_USER\ControlPanel\Gestures\Touch\00000005]
+    "Timeout"=dword:fa             ; 250 ms
+    "DistanceTolerance"=dword:32   ; 0.5 thousandths of an inch
+    "AngularTolerance"=dword:871C  ; PI/9.0 (20 degrees)
+    "ExtraInfo"=dword:871C         ; PI/9.0 (20 degrees)
+    "ScrollPanPoints"=dword:c      ; 12 points
+
+IF BSP_NOMOUSE !
+#include "$(DRIVERS_DIR)\keybd\ps2_8042\8042mouse.reg"
+ENDIF BSP_NOMOUSE !
+
+
+; @XIPREGION ENDIF PACKAGE_OEMDRIVERS
+; @CESYSGEN ENDIF CE_MODULES_POINTER
+;-------------------------------------------------------------------------------
+
+; @CESYSGEN IF CE_MODULES_SDMEMORY
+[HKEY_LOCAL_MACHINE\System\StorageManager\Profiles\SDMemory]
+    "Name"="SD Memory Card"
+    "Folder"="Storage Card"
+    ;"PartitionDriver"=""          ; removable storage cannot have partitions
+
+[HKEY_LOCAL_MACHINE\System\StorageManager\Profiles\SDMemory\FATFS]
+    "FormatFatVersion"=dword:10    ; standard sd cards require fat12 or fat16, and cannot use fat32
+
+[HKEY_LOCAL_MACHINE\System\StorageManager\Profiles\SDHCMemory]
+    "Name"="SD Memory Card"
+    "Folder"="Storage Card"
+    ;"PartitionDriver"=""          ; removable storage cannot have partitions
+
+[HKEY_LOCAL_MACHINE\System\StorageManager\Profiles\SDHCMemory\FATFS]
+    "FormatFatVersion"=dword:20    ; high capacity SD cards need to use fat32 and cannot use fat16
+
+[HKEY_LOCAL_MACHINE\System\StorageManager\Profiles\MMC]
+    "Name"="MMC Card"
+    "Folder"="Storage Card"
+    ;"PartitionDriver"=""          ; removable storage cannot have partitions
+
+; SD Memory Storage class driver
+[HKEY_LOCAL_MACHINE\Drivers\SDCARD\ClientDrivers\Class\SDMemory_Class]
+   "Dll"="SDMemory.dll"
+   "Prefix"="DSK"
+   "BlockTransferSize"=dword:40  ; send no more than 64 blocks of data per bus transfer
+   ;"SingleBlockWrites"=dword:1  ; alternatively force the driver to use single block access
+   ;"IdleTimeout"=dword:7D0      ; 2000 milliseconds
+   ;"IdlePowerState"=dword:2     ; 0 == D0, 1 == D1, etc.
+   ;"DisablePowerManagement"=""  ; if value present, then disable (remove value to enable)
+
+   "Profile"="SDMemory"
+   "IClass"=multi_sz:"{A4E7EDDA-E575-4252-9D6B-4195D48BB865}",
+                     "{8DD679CE-8AB4-43c8-A14A-EA4963FAA715}"
+
+; SDHC Memory Storage class driver
+[HKEY_LOCAL_MACHINE\Drivers\SDCARD\ClientDrivers\Class\SDMemory_Class\High_Capacity]
+   "Dll"="SDMemory.dll"
+   "Prefix"="DSK"
+   "BlockTransferSize"=dword:80  ; send no more than 64 blocks of data per bus transfer
+   ;"SingleBlockWrites"=dword:1  ; alternatively force the driver to use single block access
+   ;"IdleTimeout"=dword:7D0      ; 2000 milliseconds
+   ;"IdlePowerState"=dword:2     ; 0 == D0, 1 == D1, etc.
+   ;"DisablePowerManagement"=""  ; if value present, then disable (remove value to enable)
+
+   "Profile"="SDHCMemory"
+   "IClass"=multi_sz:"{A4E7EDDA-E575-4252-9D6B-4195D48BB865}",
+                     "{8DD679CE-8AB4-43c8-A14A-EA4963FAA715}"
+
+; MMC Storage Class Driver
+[HKEY_LOCAL_MACHINE\Drivers\SDCARD\ClientDrivers\Class\MMC_Class]
+   "Dll"="SDMemory.dll"
+   "Prefix"="DSK"
+   "BlockTransferSize"=dword:40  ; send no more than 64 blocks of data per bus transfer
+   ;"SingleBlockWrites"=dword:1  ; alternatively force the driver to use single block access
+   ;"IdleTimeout"=dword:7D0      ; milliseconds
+   ;"IdlePowerState"=dword:2     ; 0 == D0, 1 == D1, etc.
+   ;"DisablePowerManagement"=""  ; if value present, then disable (remove value to enable)
+
+   "Profile"="MMC"
+   "IClass"=multi_sz:"{A4E7EDDA-E575-4252-9D6B-4195D48BB865}",
+                     "{8DD679CE-8AB4-43c8-A14A-EA4963FAA715}"
+
+[HKEY_LOCAL_MACHINE\Drivers\SDCARD\ClientDrivers\Class\MMC_Class\High_Capacity]
+   "Dll"="SDMemory.dll"
+   "Prefix"="DSK"
+   "BlockTransferSize"=dword:80  ; send no more than 64 blocks of data per bus transfer
+   ;"SingleBlockWrites"=dword:1  ; alternatively force the driver to use single block access
+   ;"IdleTimeout"=dword:7D0      ; milliseconds
+   ;"IdlePowerState"=dword:2     ; 0 == D0, 1 == D1, etc.
+   ;"DisablePowerManagement"=""  ; if value present, then disable (remove value to enable)
+
+   "Profile"="MMC"
+   "IClass"=multi_sz:"{A4E7EDDA-E575-4252-9D6B-4195D48BB865}",
+                     "{8DD679CE-8AB4-43c8-A14A-EA4963FAA715}"
+; @CESYSGEN ENDIF CE_MODULES_SDMEMORY
+
+;-- Keyboard -------------------------------------------------------------------
+; @CESYSGEN IF CE_MODULES_KEYBD
+; @XIPREGION IF PACKAGE_OEMDRIVERS
+IF BSP_NOKEYBD !
+
+IF BSP_KEYBD_8042
+#include "$(DRIVERS_DIR)\keybd\ps2_8042\8042keybd.reg"
+ENDIF
+
+ENDIF BSP_NOKEYBD !
+; @XIPREGION ENDIF PACKAGE_OEMDRIVERS
+; @CESYSGEN ENDIF CE_MODULES_KEYBD
+;-------------------------------------------------------------------------------
+
+;-------------------------------------------------------------------------------
+; @CESYSGEN IF CE_MODULES_COMMCTRL
+; @XIPREGION IF PACKAGE_OEMDRIVERS
+; Common control settings - Turns on hover tooltips (and off click tooltips)
+[HKEY_LOCAL_MACHINE\SYSTEM\GWE\Commctrl]
+    "ToolTipsHold"=dword:0
+; @XIPREGION ENDIF PACKAGE_OEMDRIVERS
+; @CESYSGEN ENDIF CE_MODULES_COMMCTRL
+;-------------------------------------------------------------------------------
+
+;-------------------------------------------------------------------------------
+; @CESYSGEN IF CE_MODULES_POINTER || CE_MODULES_KEYBD
+; @XIPREGION IF PACKAGE_OEMDRIVERS
+; This registry setting controls the checkboxes displayed in the Sounds CPL
+; under "enable clicks & taps". Set bit0 if you have a keyboard, set bit1 if
+; you have a touch screen. Set bit2 if you have HW buttons (NOTE: for now
+; HW buttons are mutually exclusive with the keyboard)
+[HKEY_LOCAL_MACHINE\ControlPanel]
+IF BSP_NOTOUCH
+    "InputConfig"=dword:1   ; 1 => keybd, but no touch screen
+ELSE
+    "InputConfig"=dword:3   ; 3 => keybd and touch screen
+ENDIF BSP_NOTOUCH
+; @XIPREGION ENDIF PACKAGE_OEMDRIVERS
+; @CESYSGEN ENDIF CE_MODULES_POINTER || CE_MODULES_KEYBD
+;-------------------------------------------------------------------------------
+
+;-------------------------------------------------------------------------------
+; @CESYSGEN IF SHELL_MODULES_EXPLORER
+; @XIPREGION IF PACKAGE_OEMDRIVERS
+; This registry setting controls display of the Explorer's suspend menu button
+[HKEY_LOCAL_MACHINE\Explorer]
+    "Suspend"=dword:1
+; @XIPREGION ENDIF PACKAGE_OEMDRIVERS
+; @CESYSGEN ENDIF SHELL_MODULES_EXPLORER
+;-------------------------------------------------------------------------------
+
+;-------------------------------------------------------------------------------
+; @CESYSGEN IF CE_MODULES_BTAGSVC
+; @XIPREGION IF PACKAGE_OEMDRIVERS
+[HKEY_LOCAL_MACHINE\Software\Microsoft\Bluetooth\HandsfreeProfileOn]
+; @XIPREGION ENDIF PACKAGE_OEMDRIVERS
+; @CESYSGEN ENDIF CE_MODULES_BTAGSVC
+;-------------------------------------------------------------------------------
+
+;===============================================================================
+
+
+;== Registry specific for non Windows Mobile projects ==========================
+IF _TGTPROJ=smartfon !
+
+;-- USB support for ActiveSync ----------------
+; @CESYSGEN IF CE_MODULES_SERIALUSBFN && DATASYNC_MODULES_REPLLOG
+[HKEY_LOCAL_MACHINE\Drivers\USB\FunctionDrivers\Serial_Class\Unimodem]
+    "FriendlyName"="USB Cable:"
+
+[HKEY_LOCAL_MACHINE\Drivers\USB\FunctionDrivers\Serial_Class\Config]
+    "EnableFlowHard"=dword:0
+    "EnableFlowSoft"=dword:0
+
+;Connectoids
+[HKEY_LOCAL_MACHINE\Comm\DefaultConnections]
+"`USB"=multi_sz:"USB Cable:","115200"
+
+;Default Connectoid
+[HKEY_CURRENT_USER\ControlPanel\Comm]
+"Cnct"="`USB"
+"AutoCnct"=dword:1
+
+[HKEY_CURRENT_USER\Comm]
+
+[HKEY_CURRENT_USER\Comm\RasBook]
+
+[HKEY_CURRENT_USER\Comm\RasBook\`USB]
+
+[HKEY_CURRENT_USER\Comm\RasBook\`USB]
+"Entry"=hex:\
+    18,02,40,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,\
+    01,00,00,00,00,00,00,00,01,00,00,00,01,00,00,00,5C,00,57,00,\
+    69,00,6E,00,64,00,6F,00,77,00,73,00,00,00,00,00,65,00,6C,00,\
+    70,00,5C,00,2A,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,\
+    00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,\
+    00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,\
+    00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,\
+    00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,\
+    00,00,00,00,00,00,00,00,00,00,00,00,14,B3,02,85,20,F8,E2,D1,\
+    E0,2B,25,82,70,E5,02,85,04,00,00,00,14,B3,02,85,30,F8,E2,D1,\
+    79,91,24,82,1C,B3,02,85,01,00,00,00,20,00,00,00,C8,34,51,C0,\
+    88,FA,E2,D1,BA,F3,25,82,CA,34,51,C0,16,84,25,82,2F,F4,25,82,\
+    6F,1E,E3,B4,24,00,00,00,48,B4,02,85,00,00,00,00,C8,34,51,C0,\
+    00,00,00,00,54,00,41,00,50,00,49,00,4C,00,49,00,4E,00,45,00,\
+    30,00,30,00,30,00,30,00,30,00,30,00,64,37,A8,C0,00,00,00,00,\
+    00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,01,00,00,00,\
+    64,00,69,00,72,00,65,00,63,00,74,00,00,00,00,00,2C,F4,E2,D1,\
+    00,00,00,00,98,F5,E2,D1,91,38,E1,EF,5B,73,55,00,53,00,42,00,\
+    20,00,43,00,61,00,62,00,6C,00,65,00,3A,00,00,00,A0,54,72,CE,\
+    54,00,72,CE,10,00,72,CE,B8,F4,E2,D1,54,FD,DC,EF,A0,00,00,00,\
+    00,00,00,00,5C,00,57,00,69,00,6E,00,64,00,6F,00,77,00,73,00,\
+    5C,00,48,00,65,00,6C,00,70,00,5C,00,2A,00,00,00,00,08,00,00,\
+    C0,FB,E2,D1,91,38,E1,EF,5B,73,3F,6C,14,B3,02,85,38,F9,E2,D1,\
+    E0,2B,25,82,70,E5,02,85,04,00,00,00,14,B3,02,85,48,F9,E2,D1,\
+    79,91,24,82,1C,B3,02,85,01,00,00,00,20,00,00,00,08,3E,41,C0,\
+    A0,FB,E2,D1,BA,F3,25,82,0A,3E,41,C0,01,00,00,00,48,A9,05,85,\
+    01,00,00,00,80,F9,E2,D1,30,74,26,82,20,B1,05,85,3C,13,4A,C0,\
+    C0,A8,05,85,00,00,00,00,90,F9,E2,D1,71,86,26,82,E8,49,E7,73,\
+    AC,F9,E2,D1,4C,9D,26,82,AC,F9,E2,D1,84,9D,26,82,8A,9D,26,82,\
+    3C,13,4A,C0,3C,13,4A,C0,00,00,00,00,C0,F9,E2,D1,AD,9D,26,82,\
+    5F,1D,E3,B4,D8,F9,E2,D1,F6,69,23,82,00,00,5D,04,1E,00,56,04,\
+    60,FA,E2,D1,60,FA,E2,D1,5C,F1,03,00,B0,30,4A,C0,F4,FB,E2,D1,\
+    D3,6B,23,82,60,FA,E2,D1,00,00,00,00,3C,13,4A,C0,02,6C,23,82,\
+    CD,E6,DC,EF,00,00,00,00,00,00,00,00,79,E7,DC,EF,EB,CF,3C,52,\
+    10,4F,51,CC,14,00,00,00,08,4F,51,CC,A6,D7,EE,EF,00,E0,E2,D1,\
+    01,00,00,00,05,00,00,00,30,FA,E2,D1,1D,90,EE,EF,44,35,00,20,\
+    F0,2B,F5,EF,58,FA,E2,D1,33,B1,EF,EF,44,35,00,20,F4,BC,9C,D0,\
+    01,00,00,00,70,7C,75,D0,44,01,00,00,FC,FB,E2,D1,00,00,00,00,\
+    39,00,00,00,5C,F1,03,00,74,00,00,00,43,00,6F,00,6E,00,6E,00,\
+    65,00,63,00,74,00,69,00,6F,00,6E,00,C8,FA,E2,D1,CD,E6,DC,EF,\
+    00,00,00,00,00,00,00,00,79,E7,DC,EF,63,CF,3C,52,10,D9,83,D3,\
+    14,00,00,00,B8,FA,E2,D1,17,D4,24,82,D4,E6,03,00,90,0D,00,00,\
+    00,00,00,00,94,FB,E2,D1,94,FB,E2,D1,00,00,00,00,05,00,00,00,\
+    00,FB,E2,D1,50,D8,24,82,06,00,00,00,00,FB,E2,D1,8A,D8,24,82,\
+    00,00,00,00,E5,D8,24,82,E7,1F,E3,B4,94,FB,E2,D1,FC,FB,E2,D1,\
+    FC,FB,E2,D1,00,00,00,00,D4,FA,E2,D1,1D,E9,DC,EF,70,CC,02,85,\
+    70,CC,02,85,08,FB,E2,D1,5D,EA,24,82,02,00,40,00,70,CC,02,85,\
+    80,FB,E2,D1,BC,D9,24,82,90,DA,24,82,67,1F,E3,B4,68,FA,03,00,\
+    FC,FB,E2,D1,00,00,00,00,38,FC,E2,D1,7C,E6,03,00,1A,95,24,82,\
+    BF,1F,E3,B4,3C,13,4A,C0,38,FC,E2,D1,00,00,00,00,30,FB,E2,D1,\
+    58,FB,E2,D1,FE,FF,FF,FF,A9,3D,25,82,74,FB,E2,D1,5C,D3,24,82,\
+    FC,FB,E2,D1,70,CC,02,85,3C,13,4A,C0,00,00,00,00,14,FB,E2,D1,\
+    1A,95,24,82,FE,FF,FF,FF,A9,3D,25,82,7F,CC,27,E7,FE,FF,FF,FF,\
+    90,DA,24,82,31,DB,24,82,68,FA,03,00,FC,FB,E2,D1,3C,13,4A,C0,\
+    90,0D,00,00,0F,00,00,00,50,13,44,C4,06,00,00,00,55,04,04,00,\
+    00,00,00,00,FC,FB,E2,D1,00,00,00,00,0A,00,00,00,90,0D,00,00,\
+    00,00,00,00,00,00,00,00,00,00,00,00,00,00,00,00
+
+
+[HKEY_LOCAL_MACHINE\Drivers\USB\FunctionDrivers]
+   "DefaultClientDriver"=- ; erase previous default
+[HKEY_LOCAL_MACHINE\Drivers\USB\FunctionDrivers]
+   "DefaultClientDriver"="Serial_Class"
+; @CESYSGEN ENDIF CE_MODULES_SERIALUSBFN && DATASYNC_MODULES_REPLLOG
+
+
+;-- Platform type --------------------------------------------------------------
+; @XIPREGION IF PACKAGE_OEMXIPKERNEL
+; HIVE BOOT SECTION
+[HKEY_LOCAL_MACHINE\Platform]
+    "Type"=dword:2
+    "Name"=LOC_PLATFORMNAME
+IF IMGSOFTRTC
+    "SoftRTC"=dword:1
+ENDIF
+; END HIVE BOOT SECTION
+; @XIPREGION ENDIF PACKAGE_OEMXIPKERNEL
+;-------------------------------------------------------------------------------
+
+;-- NE2000 naming --------------------------------------------------------------
+; @CESYSGEN IF CE_MODULES_NDIS
+; @CESYSGEN IF CE_MODULES_NE2000
+; @XIPREGION IF PACKAGE_OEMDRIVERS
+IF BSP_NOETHER !
+IF BSP_NIC_NE2000_ISA
+
+[HKEY_LOCAL_MACHINE\Comm\NE2000]
+    "DisplayName"=LOC_DISPLAYNAME_COMM_NE2000
+
+[HKEY_LOCAL_MACHINE\Comm\NE20001]
+    "DisplayName"=LOC_DISPLAYNAME_COMM_NE20001
+
+ENDIF BSP_NIC_NE2000_ISA
+ENDIF BSP_NOETHER !
+; @XIPREGION ENDIF PACKAGE_OEMDRIVERS
+; @CESYSGEN ENDIF CE_MODULES_NE2000
+; @CESYSGEN ENDIF CE_MODULES_NDIS
+;-------------------------------------------------------------------------------
+
+;-- 16550 UART naming ----------------------------------------------------------
+; @CESYSGEN IF CE_MODULES_SERIAL
+IF BSP_NOSERIAL !
+; @XIPREGION IF PACKAGE_OEMDRIVERS
+
+IF BSP_SERIAL1
+[HKEY_LOCAL_MACHINE\Drivers\BuiltIn\Serial1\Unimodem]
+    "FriendlyName"=LOC_FRIENDLYNAME_SERIAL
+
+[HKEY_LOCAL_MACHINE\Drivers\BuiltIn\Serial1\HayesCompat]
+   "FriendlyName"=mui_sz:"unimodem.dll,#9001"
+ENDIF BSP_SERIAL1
+
+IF BSP_SERIAL2
+[HKEY_LOCAL_MACHINE\Drivers\BuiltIn\Serial2\Unimodem]
+    "FriendlyName"=LOC_FRIENDLYNAME_SERIAL2
+
+[HKEY_LOCAL_MACHINE\Drivers\BuiltIn\Serial2\HayesCompat]
+   "FriendlyName"=mui_sz:"unimodem.dll,#9014"
+ENDIF BSP_SERIAL2
+
+IF BSP_SERIAL3
+[HKEY_LOCAL_MACHINE\Drivers\BuiltIn\Serial3\Unimodem]
+    "FriendlyName"=LOC_FRIENDLYNAME_SERIAL3
+
+[HKEY_LOCAL_MACHINE\Drivers\BuiltIn\Serial3\HayesCompat]
+   "FriendlyName"=mui_sz:"unimodem.dll,#9015"
+ENDIF BSP_SERIAL3
+
+; @XIPREGION ENDIF PACKAGE_OEMDRIVERS
+ENDIF BSP_NOSERIAL !
+; @CESYSGEN ENDIF CE_MODULES_SERIAL
+;-------------------------------------------------------------------------------
+
+;-- IrDA naming ----------------------------------------------------------------
+; @CESYSGEN IF CE_MODULES_IRDASTK
+; @XIPREGION IF PACKAGE_OEMDRIVERS
+IF BSP_NOSIR !
+
+[HKEY_LOCAL_MACHINE\Comm\IrDA\Linkage]
+    "DisplayName"=LOC_FRIENDLYNAME_IRSIR
+
+ENDIF BSP_NOSIR !
+; @XIPREGION ENDIF PACKAGE_OEMDRIVERS
+; @CESYSGEN ENDIF CE_MODULES_IRDASTK
+;-------------------------------------------------------------------------------
+
+;-- Parallel port naming -------------------------------------------------------
+; @CESYSGEN IF CE_MODULES_PARALLEL
+; @XIPREGION IF PACKAGE_OEMDRIVERS
+IF BSP_NOPARALLEL !
+
+[HKEY_LOCAL_MACHINE\Drivers\BuiltIn\Parallel]
+    "FriendlyName"=LOC_FRIENDLYNAME_PARALLEL
+
+ENDIF BSP_NOPARALLEL !
+; @XIPREGION ENDIF PACKAGE_OEMDRIVERS
+; @CESYSGEN ENDIF CE_MODULES_PARALLEL
+;-------------------------------------------------------------------------------
+
+;-------------------------------------------------------------------------------
+; Create an image with multiple IMEs for testing purpose
+; (Common part is in project.reg for CEBase/smartfon and this is platform specific part)
+IF _IMG_TEST_MULTIIME_CE_PHONEIME_MSPY
+
+;
+; Default HKL for each keyboard/SIP
+;
+;  Hardware Keyboard (0409)
+[HKEY_LOCAL_MACHINE\System\Input\lang_0409\keyboard\{969877D1-6658-4459-A2C4-056E8A74DAD6}]
+    @="e0020409"
+    "1"="e0010804"
+;  MSIM (0409)
+[HKEY_LOCAL_MACHINE\System\Input\lang_0409\keyboard\{42429667-ae04-11d0-a4f8-00aa00a749b9}]
+    @="e0020409"
+;  Large KB (0409)
+[HKEY_LOCAL_MACHINE\System\Input\lang_0409\keyboard\{A523DFC7-1A7E-4af6-991A-510E75847828}]
+    @="e0020409"
+;  Chinese SSKIM (0409)
+[HKEY_LOCAL_MACHINE\System\Input\lang_0409\keyboard\{F50603D1-CF2F-41d8-A74B-651226633FF0}]
+    @="e0010804"
+;  Chinese SSK3DIM (0409)
+[HKEY_LOCAL_MACHINE\System\Input\lang_0409\keyboard\{28BD0FFF-23E2-4976-A685-C419CB8011DC}]
+    @="e0010804"
+;  Hardware Keyboard (0804)
+[HKEY_LOCAL_MACHINE\System\Input\lang_0804\keyboard\{969877D1-6658-4459-A2C4-056E8A74DAD6}]
+    @="e0010804"
+    "1"="e0020409"
+;  MSIM (0804)
+[HKEY_LOCAL_MACHINE\System\Input\lang_0804\keyboard\{42429667-ae04-11d0-a4f8-00aa00a749b9}]
+    @="e0010804"
+;  Large KB (0804)
+[HKEY_LOCAL_MACHINE\System\Input\lang_0804\keyboard\{A523DFC7-1A7E-4af6-991A-510E75847828}]
+    @="e0010804"
+;  Chinese SSKIM (0804)
+[HKEY_LOCAL_MACHINE\System\Input\lang_0804\keyboard\{F50603D1-CF2F-41d8-A74B-651226633FF0}]
+    @="e0010804"
+;  Chinese SSK3DIM (0804)
+[HKEY_LOCAL_MACHINE\System\Input\lang_0804\keyboard\{28BD0FFF-23E2-4976-A685-C419CB8011DC}]
+    @="e0010804"
+
+ENDIF ; _IMG_TEST_MULTIIME_CE_PHONEIME_MSPY
+;-------------------------------------------------------------------------------
+
+ENDIF _TGTPROJ=smartfon !
+;===============================================================================
+
+;== Registry specific for ULDR project =========================================
+IF _TGTPROJ=uldr
+; @CESYSGEN IF !FILESYS_FSYSRAM
+; @CESYSGEN IF CE_MODULES_FILESYS
+; @CESYSGEN IF CE_MODULES_FSDMGR
+; @CESYSGEN IF CE_MODULES_RAMDISK
+; @CESYSGEN IF CE_MODULES_DEVICE
+; @CESYSGEN IF CE_MODULES_ATAPI
+
+; HIVE BOOT SECTION
+[HKEY_LOCAL_MACHINE\init\BootVars]
+    "Flags"=dword:1
+
+[HKEY_LOCAL_MACHINE\System\StorageManager\Profiles\RAMDisk]
+    "AutoPart"=dword:1
+    "AutoFormat"=dword:1
+
+[HKEY_LOCAL_MACHINE\System\StorageManager\Profiles\RAMDisk\FatFs]
+    "MountAsBootable"=dword:1
+    "MountAsRoot"=dword:1
+
+[HKEY_LOCAL_MACHINE\System\StorageManager\AutoLoad\RAMDisk]
+    "DriverPath"="Drivers\\BlockDevice\\RAMDisk"
+    "LoadFlags"=dword:1
+    "BootPhase"=dword:0
+
+[HKEY_LOCAL_MACHINE\Drivers\BlockDevice\RAMDisk]
+    "Dll"="ramdisk.dll"
+    "Prefix"="DSK"
+    "Order"=dword:0
+    "Profile"="RAMDisk"
+    "Size"=dword:00A00000
+; END HIVE BOOT SECTION
+
+[HKEY_LOCAL_MACHINE\System\StorageManager\Profiles\HDProfile\ImgFs]
+    "MountAsRom"=dword:0
+    "MountHidden"=dword:0
+    "MountAsRoot"=dword:0
+    "MountAsBootable"=dword:0
+    "Folder"="IMGFS"
+
+[HKEY_LOCAL_MACHINE\System\StorageManager\Profiles\HDProfile\FatFs]
+    "MountAsRoot"=dword:0
+    "MountAsBootable"=dword:0
+    "MountAsRom"=dword:0
+    "MountAsHidden"=dword:0
+    "CheckForFormat"=dword:0
+    "Folder"="OSRoot"
+
+; @CESYSGEN IF ULDR_UPDATEAPP
+[HKEY_LOCAL_MACHINE\System\ImageUpdate\UpdateApp]
+    "FSDMountTimeout"=dword:3c
+; @CESYSGEN ENDIF ULDR_UPDATEAPP
+
+; @CESYSGEN ENDIF CE_MODULES_ATAPI
+; @CESYSGEN ENDIF CE_MODULES_DEVICE
+; @CESYSGEN ENDIF CE_MODULES_RAMDISK
+; @CESYSGEN ENDIF CE_MODULES_FSDMGR
+; @CESYSGEN ENDIF CE_MODULES_FILESYS
+; @CESYSGEN ENDIF !FILESYS_FSYSRAM
+ENDIF _TGTPROJ=uldr !
+;===============================================================================
+
+;== Registry specific for Windows Mobile projects ==============================
+IF _TGTPROJ=smartfon
+
+;-- Platform type --------------------------------------------------------------
+; @XIPREGION IF PACKAGE_OEMMISC
+[HKEY_LOCAL_MACHINE\Platform]
+    "Type"=dword:2
+    "Name"=LOC_PLATFORMNAME
+IF IMGSOFTRTC
+    "SoftRTC"=dword:1
+ENDIF
+; @XIPREGION ENDIF PACKAGE_OEMMISC
+;-------------------------------------------------------------------------------
+
+;-- Shell keys -----------------------------------------------------------------
+; @XIPREGION IF PACKAGE_OEMDRIVERS
+
+; Start
+[HKEY_LOCAL_MACHINE\Software\Microsoft\Shell\Keys\40C1]
+    "Icon"="shellreswpc.dll, -4617"
+    "Flags"=dword:1
+    "ResetFlags"=dword:1
+
+[HKEY_LOCAL_MACHINE\Software\Microsoft\Shell\Keys\40C2]
+    @=LOC_APPBTN2DEF
+    "Icon"="outres.dll, -10002"
+    "Flags"=dword:0
+    "ResetCmd"=LOC_APPBTN2DEF
+
+; Context Menu
+[HKEY_LOCAL_MACHINE\Software\Microsoft\Shell\Keys\40C3]
+    "Icon"="shellreswpc.dll, -4619"
+    "Flags"=dword:B
+    "ResetFlags"=dword:B
+
+; Foo Button
+[HKEY_LOCAL_MACHINE\Software\Microsoft\Shell\Keys\40C4]
+    "Icon"="shellreswpc.dll, -4618"
+    "Flags"=dword:A
+    "ResetFlags"=dword:A
+
+; CME Configuration
+[HKEY_LOCAL_MACHINE\System\Softkeys]
+    "MenuHotKey"=dword:74  ; VK_F5
+    "MenuKeyDelay"=dword:0
+    "MenuKeyAssignment"=dword:0 
+
+; @XIPREGION ENDIF PACKAGE_OEMDRIVERS
+;-------------------------------------------------------------------------------
+
+;-------------------------------------------------------------------------------
+; @XIPREGION IF PACKAGE_OEMDRIVERS
+[HKEY_LOCAL_MACHINE\System\Platform]
+    "DataPath" = "\\"
+    "PSAtRoot"=dword:1
+[HKEY_LOCAL_MACHINE\SYSTEM\GWE\Notify]
+    "Volume"="\\mxip_notify.vol"
+; @XIPREGION ENDIF PACKAGE_OEMDRIVERS
+;-------------------------------------------------------------------------------
+
+;-------------------------------------------------------------------------------
+; @CESYSGEN IF FILESYS_FSDBASE
+; @XIPREGION IF PACKAGE_OEMDRIVERS
+[HKEY_CURRENT_USER\Software\Microsoft\Windows]
+    "DbPath" = "\\mxip_initdb.vol"
+    "LangDbPath" = "\\mxip_lang.vol"
+; @XIPREGION ENDIF PACKAGE_OEMDRIVERS
+; @CESYSGEN ENDIF FILESYS_FSDBASE
+;-------------------------------------------------------------------------------
+
+;-------------------------------------------------------------------------------
+; @CESYSGEN IF SHELLW_MODULES_STARTUPWIZARD
+; @XIPREGION IF PACKAGE_OEMDRIVERS
+; StartupWizard: Disable all pages
+; STARTUPWIZARD(0x02), TOUCHSCREENCALIB(0x04), LANGPROVINTERACTIVE(0x08), DATETIME(0x10), SIMPIN(0x20), PASSWD(0x40), FINISH(0x80),PARTNERSFINISH(0x100)
+[HKEY_LOCAL_MACHINE\System\Shell\startupwizard]
+    "Enable"=dword:0
+    "PageLaunchStatus"=dword:0
+; @XIPREGION ENDIF PACKAGE_OEMDRIVERS
+; @CESYSGEN ENDIF SHELLW_MODULES_STARTUPWIZARD
+;-------------------------------------------------------------------------------
+
+;-- USB support for AcitveSync ----------------
+; @CESYSGEN IF CE_MODULES_SERIALUSBFN
+[HKEY_LOCAL_MACHINE\Drivers\USB\FunctionDrivers\Serial_Class\Unimodem]
+    "FriendlyName"="USB Cable:"
+
+[HKEY_LOCAL_MACHINE\Drivers\USB\FunctionDrivers\Serial_Class\Config]
+    "EnableFlowHard"=dword:0
+    "EnableFlowSoft"=dword:0
+
+;Connectoids
+[HKEY_LOCAL_MACHINE\Comm\DefaultConnections]
+"`USB"=multi_sz:"USB Cable:","115200"
+
+;Default Connectoid
+[HKEY_CURRENT_USER\ControlPanel\Comm]
+"Cnct"="`USB"
+; @CESYSGEN ENDIF CE_MODULES_SERIALUSBFN
+;-------------------------------------------------------------------------------
+
+;-------------------------------------------------------------------------------
+; @XIPREGION IF IMESWITCHING_TEST_REGISTRY
+
+; Create an image with multiple IMEs for testing purpose
+; (Common part is in project.reg for CEBase/smartfon and this is platform specific part)
+IF _IMG_TEST_MULTIIME_WM_COMPIME_PHONEIME
+
+; Default HKL for each keyboard/SIP
+[HKEY_LOCAL_MACHINE\System\Input\lang_0409\keyboard\{1EB42241-A64F-4a56-A1DB-807D4698FC57}]
+    @="e0010409"
+    "1"="e0020409"
+[HKEY_LOCAL_MACHINE\System\Input\lang_0409\keyboard\{42429667-ae04-11d0-a4f8-00aa00a749b9}]
+    @="e0020409"
+    "1"="e0010409"
+[HKEY_LOCAL_MACHINE\System\Input\lang_0407\keyboard\{1EB42241-A64F-4a56-A1DB-807D4698FC57}]
+    @="e0010407"
+    "1"="e0020407"
+[HKEY_LOCAL_MACHINE\System\Input\lang_0407\keyboard\{615623e0-a400-11d1-8910-0000f81ea21f}]
+    @="e0020407"
+    "1"="e0010407"
+
+ENDIF ; _IMG_TEST_MULTIIME_WM_COMPIME_PHONEIME
+
+; @XIPREGION ENDIF IMESWITCHING_TEST_REGISTRY
+;-------------------------------------------------------------------------------
+
+;-------------------------------------------------------------------------------
+; @CESYSGEN IF CE_MODULES_SAMPLECAM
+
+;
+; MSCamera settings for NULL camera driver
+;
+;*************************************************
+; Scene Setting
+;*************************************************
+[HKEY_LOCAL_MACHINE\System\Camera\OEM\Scenes\Photo\Auto]
+"IconPath"="res://mscamres.dll/PNG/#14051"
+"Flash"=dword:2
+"WhiteBalance"=dword:0
+"Brightness"=dword:0
+
+
+[HKEY_LOCAL_MACHINE\System\Camera\OEM\Scenes\Video\Auto]
+"IconPath"="res://mscamres.dll/PNG/#14051"
+"WhiteBalance"=dword:0
+"Brightness"=dword:0
+
+
+;*************************************************
+; Photo Resolution Setting
+;*************************************************
+[HKEY_LOCAL_MACHINE\System\Camera\OEM\PhotoResolutions\1]
+"DisplayName"="160x120"
+"IconPath"="res://mscamres.dll/PNG/#14060"
+"Width"=dword:a0
+"Height"=dword:78
+"PreviewWidth"=dword:a0
+"PreviewHeight"=dword:78
+
+[HKEY_LOCAL_MACHINE\System\Camera\OEM\PhotoResolutions\2]
+"DisplayName"="176x144"
+"IconPath"="res://mscamres.dll/PNG/#14061"
+"Width"=dword:b0
+"Height"=dword:90
+
+;*************************************************
+; Video Resolution Setting
+;*************************************************
+[HKEY_LOCAL_MACHINE\System\Camera\OEM\VideoResolutions\1]
+"DisplayName"="160x120"
+"IconPath"="res://mscamres.dll/PNG/#14060"
+"Width"=dword:a0
+"Height"=dword:78
+
+[HKEY_LOCAL_MACHINE\System\Camera\OEM\VideoResolutions\2]
+"DisplayName"="176x144"
+"IconPath"="res://mscamres.dll/PNG/#14061"
+"Width"=dword:b0
+"Height"=dword:90
+
+[HKEY_LOCAL_MACHINE\System\Camera\OEM\VideoResolutions\3]
+"DisplayName"="320x240"
+"IconPath"="res://mscamres.dll/PNG/#14062"
+"Width"=dword:140
+"Height"=dword:f0
+
+;*************************************************
+; White Balance Setting
+;*************************************************
+[HKEY_LOCAL_MACHINE\System\Camera\OEM\WhiteBalance\1]
+"ControlType"=dword:1
+"IconPath"="res://mscamres.dll/PNG/#14110"
+
+
+[HKEY_LOCAL_MACHINE\System\Camera\OEM\WhiteBalance\2]
+"Value"=dword:111
+"IconPath"="res://mscamres.dll/PNG/#14113"
+
+
+[HKEY_LOCAL_MACHINE\System\Camera\OEM\WhiteBalance\3]
+"Value"=dword:11b
+"IconPath"="res://mscamres.dll/PNG/#14114"
+
+
+[HKEY_LOCAL_MACHINE\System\Camera\OEM\WhiteBalance\5]
+"Value"=dword:12f
+"IconPath"="res://mscamres.dll/PNG/#14111"
+
+
+[HKEY_LOCAL_MACHINE\System\Camera\OEM\WhiteBalance\6]
+"Value"=dword:136
+"IconPath"="res://mscamres.dll/PNG/#14112"
+
+
+;*************************************************
+; Brightness Setting
+;*************************************************
+[HKEY_LOCAL_MACHINE\System\Camera\OEM\Brightness\1]
+"ControlType"=dword:1
+"IconPath"="res://mscamres.dll/PNG/#14100"
+
+
+[HKEY_LOCAL_MACHINE\System\Camera\OEM\Brightness\2]
+"Value"=dword:fffffffe
+"IconPath"="res://mscamres.dll/PNG/#14101"
+"DisplayName"="-2"
+
+[HKEY_LOCAL_MACHINE\System\Camera\OEM\Brightness\3]
+"Value"=dword:ffffffff
+"IconPath"="res://mscamres.dll/PNG/#14102"
+"DisplayName"="-1"
+
+[HKEY_LOCAL_MACHINE\System\Camera\OEM\Brightness\4]
+"Value"=dword:0
+"IconPath"="res://mscamres.dll/PNG/#14103"
+"DisplayName"="0"
+
+[HKEY_LOCAL_MACHINE\System\Camera\OEM\Brightness\5]
+"Value"=dword:1
+"IconPath"="res://mscamres.dll/PNG/#14104"
+"DisplayName"="1"
+
+[HKEY_LOCAL_MACHINE\System\Camera\OEM\Brightness\6]
+"Value"=dword:2
+"IconPath"="res://mscamres.dll/PNG/#14105"
+"DisplayName"="2"
+
+[HKEY_LOCAL_MACHINE\System\Camera\OEM\Brightness\7]
+"Value"=dword:3
+"IconPath"="res://mscamres.dll/PNG/#14106"
+"DisplayName"="3"
+
+;*************************************************
+; Flash Setting
+;*************************************************
+[HKEY_LOCAL_MACHINE\System\Camera\OEM\Flash]
+"OffOption"="Off"
+"AlwaysOnOption"="On"
+
+[HKEY_LOCAL_MACHINE\System\Camera\OEM\Flash\Auto]
+"Value"=dword:0
+"IconPath"="res://mscamres.dll/PNG/#14120"
+
+
+[HKEY_LOCAL_MACHINE\System\Camera\OEM\Flash\Off]
+"Value"=dword:1
+"IconPath"="res://mscamres.dll/PNG/#14121"
+
+
+[HKEY_LOCAL_MACHINE\System\Camera\OEM\Flash\On]
+"Value"=dword:2
+"IconPath"="res://mscamres.dll/PNG/#14122"
+
+
+;*************************************************
+; User preference Setting
+;*************************************************
+[HKEY_CURRENT_USER\Software\Microsoft\Camera\User\Photo]
+"Scene"=dword:1
+"Flash"=dword:2
+[HKEY_CURRENT_USER\Software\Microsoft\Camera\User\Video]
+"Scene"=dword:1
+"Flash"=dword:2
+
+; @CESYSGEN ENDIF CE_MODULES_SAMPLECAM
+;-------------------------------------------------------------------------------
+
+ENDIF _TGTPROJ=smartfon
+;===============================================================================

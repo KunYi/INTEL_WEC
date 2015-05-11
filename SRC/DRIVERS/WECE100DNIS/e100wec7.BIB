@@ -1,0 +1,18 @@
+
+;
+; Image configuration for INTEL E100 Adapter driver for WINCE6.  
+; 
+; These modules must be included in the master PLATFORM.BIB 
+; (or one of the other .BIB source files) in the WinCE image. 
+; Note that this BIB file format is not appropriate for CE5 images
+; which requires "NK SH" Memory Type
+
+
+MODULES
+;  Name            Path                                           Memory Type
+;  --------------  ---------------------------------------------  -----------
+
+
+; Include the INTEL E100 driver in the image
+   e100wec7.dll      $(_FLATRELEASEDIR)\e100wec7.dll                NK  SHK
+

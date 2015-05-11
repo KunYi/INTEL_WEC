@@ -1,0 +1,89 @@
+# Copyright (c) Microsoft Corporation.  All rights reserved.
+# Use of this sample source code is subject to the terms of the Microsoft
+# license agreement under which you licensed this sample source code. If
+# you did not accept the terms of the license agreement, you are not
+# authorized to use this sample source code. For the terms of the license,
+# please see the license agreement between you and Microsoft or, if applicable,
+# see the LICENSE.RTF on your install media or the root of your tools installation.
+# THE SAMPLE SOURCE CODE IS PROVIDED "AS IS", WITH NO WARRANTIES OR INDEMNITIES.
+# Enable i830 specific features
+# to disable MultiWord DMA, enable below
+# CDEFINES=$(CDEFINES) -DNO_MWDMA
+# xref VIGUID {84522799-3172-408b-84b1-77d642f73715}
+# xref VSGUID {c9a87c9a-e59d-4a7f-af0f-42a364cfb451}
+
+!if 0
+-- Intel Copyright Notice -- 
+ 
+@par 
+Copyright (c) 2002-2011 Intel Corporation All Rights Reserved. 
+ 
+@par 
+The source code contained or described herein and all documents 
+related to the source code ("Material") are owned by Intel Corporation 
+or its suppliers or licensors.  Title to the Material remains with 
+Intel Corporation or its suppliers and licensors. 
+ 
+@par 
+The Material is protected by worldwide copyright and trade secret laws 
+and treaty provisions. No part of the Material may be used, copied, 
+reproduced, modified, published, uploaded, posted, transmitted, 
+distributed, or disclosed in any way except in accordance with the 
+applicable license agreement . 
+ 
+@par 
+No license under any patent, copyright, trade secret or other 
+intellectual property right is granted to or conferred upon you by 
+disclosure or delivery of the Materials, either expressly, by 
+implication, inducement, estoppel, except in accordance with the 
+applicable license agreement. 
+ 
+@par 
+Unless otherwise agreed by Intel in writing, you may not remove or 
+alter this notice or any other notice embedded in Materials by Intel 
+or Intel's suppliers or licensors in any way. 
+ 
+@par 
+For further details, please see the file README.TXT distributed with 
+this software. 
+ 
+@par 
+-- End Intel Copyright Notice -- 
+ 
+!endif
+
+!IF "$(BSP_STORAGE_I82371)" == ""
+SKIPBUILD=1
+!ENDIF
+
+WINCEOEM=1
+SYNCHRONIZE_DRAIN=1
+
+RELEASETYPE=PLATFORM
+TARGETNAME=atapi
+TARGETTYPE=DYNLINK
+# DLLENTRY=_DllMainCRTStartup
+
+DEFFILE=..\atapi.def
+
+INCLUDES= \
+    .. \
+
+CDEFINES=$(CDEFINES) -DI830M4 -DMWDMA
+
+SOURCELIBS= \
+  $(_PLATLIB)\$(_CPUDEPPATH)\atapi_common_lib.lib \
+  $(_PLATLIB)\$(_CPUDEPPATH)\atapi_pcio_lib.lib \
+  $(_PLATLIB)\$(_CPUDEPPATH)\atapi_pcio_cd_lib.lib \
+
+TARGETLIBS= \
+  $(_SYSGENSDKROOT)\lib\$(_CPUINDPATH)\coredll.lib \
+  $(_SYSGENOAKROOT)\lib\$(_CPUINDPATH)\pcibus.lib \
+  $(_SYSGENOAKROOT)\lib\$(_CPUINDPATH)\storeapi.lib \
+  $(_SYSGENOAKROOT)\lib\$(_CPUINDPATH)\ceddk.lib \
+
+SOURCES= \
+    ich.cpp \
+
+FILE_VIEW_ROOT_FOLDER= \
+

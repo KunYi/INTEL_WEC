@@ -1,0 +1,872 @@
+// -- Intel Copyright Notice --
+// 
+// @par
+// Copyright (c) 2002-2011 Intel Corporation All Rights Reserved.
+// 
+// @par
+// The source code contained or described herein and all documents
+// related to the source code ("Material") are owned by Intel Corporation
+// or its suppliers or licensors.  Title to the Material remains with
+// Intel Corporation or its suppliers and licensors.
+// 
+// @par
+// The Material is protected by worldwide copyright and trade secret laws
+// and treaty provisions. No part of the Material may be used, copied,
+// reproduced, modified, published, uploaded, posted, transmitted,
+// distributed, or disclosed in any way except in accordance with the
+// applicable license agreement .
+// 
+// @par
+// No license under any patent, copyright, trade secret or other
+// intellectual property right is granted to or conferred upon you by
+// disclosure or delivery of the Materials, either expressly, by
+// implication, inducement, estoppel, except in accordance with the
+// applicable license agreement.
+// 
+// @par
+// Unless otherwise agreed by Intel in writing, you may not remove or
+// alter this notice or any other notice embedded in Materials by Intel
+// or Intel's suppliers or licensors in any way.
+// 
+// @par
+// For further details, please see the file README.TXT distributed with
+// this software.
+// 
+// @par
+// -- End Intel Copyright Notice --
+//
+
+#ifndef _HDA_CTRL_H_
+#define _HDA_CTRL_H_
+
+#define HDA_CODEC_AD1986A		0x11d41986
+#define HDA_CODEC_ALC268		0x10EC0268		 
+#define HDA_CODEC_ALC885		0x10EC0885		
+#define HDA_CODEC_ALC888		0x10EC0888
+#define HDA_CODEC_ALC262		0x10EC0262	
+
+#define MAX_STREAM				2
+#define HDA_DMA_ALIGNMENT		128
+#define HDA_MAX_CODEC			16
+#define HDA_MAX_CONNS			32
+
+#define HDA_CHN_RUNNING			0x00000001
+#define HDA_CHN_SUSPEND			0x00000002
+
+#define SINK_LINE_OUT			0
+#define SINK_HEAD_PHONE			1
+#define MAX_UNSOLIC_Q			64
+#define UNSOL_Q_READY			0
+#define UNSOL_Q_BUSY			1
+
+#define DIR_PLAY 				0
+#define DIR_REC 				1
+
+#define AUDIO_FORMAT_STEREO		0x00000001
+#define AUDIO_FORMAT_SMP16		0x00000010	
+#define AUDIO_FORMAT_SMP20		0x00000020
+#define AUDIO_FORMAT_SMP24		0x00000030
+#define AUDIO_FORMAT_SMP32		0x00000040
+
+#define BASE_SAMPLE_RATE_44KHZ	1
+#define BASE_SAMPLE_RATE_48KHZ	0
+
+#define SAMPLE_RATE_MULT_1		0
+#define SAMPLE_RATE_MULT_2		1
+#define SAMPLE_RATE_MULT_3		2
+#define SAMPLE_RATE_MULT_4		3
+
+#define SAMPLE_RATE_DIV_1		0
+#define SAMPLE_RATE_DIV_2		1
+#define SAMPLE_RATE_DIV_3		2
+#define SAMPLE_RATE_DIV_4		3
+#define SAMPLE_RATE_DIV_5		4
+#define SAMPLE_RATE_DIV_6		5
+#define SAMPLE_RATE_DIV_7		6
+#define SAMPLE_RATE_DIV_8		7
+
+
+
+#define HDA_MATCH_ALL			0xffffffff
+#define HDA_INVALID				0xffffffff
+
+#define HDA_AMP_MUTE_DEFAULT	(0xffffffff)
+#define HDA_AMP_MUTE_ALL		1
+
+#define HDA_DAC_PATH			(1 << 0)
+#define HDA_ADC_PATH			(1 << 1)
+#define HDA_ADC_RECSEL			(1 << 2)
+
+#define HDA_CTL_OUT				(1 << 0)
+#define HDA_CTL_IN				(1 << 1)
+
+#define SOUND_MSK_SKIP			(1 << 30)
+#define SOUND_MSK_DISABLE		(1 << 31)
+
+#define HDA_BDL_DEFAULT			8
+
+#define HDA_BUFSZ_MIN			4096
+#define HDA_BUFSZ_MAX			65536
+#define HDA_BUF_SIZE_DEFAULT	16384 
+
+#define HDA_PARSE_MAXDEPTH		10
+
+#define HDA_PARSE_MIXER			0
+#define HDA_PARSE_DIRECT		1
+
+/************************************
+* 		Register Map				*
+*************************************/
+#define REG_GCAP				0x00	
+#define REG_VMIN				0x02	
+#define REG_VMAJ				0x03	
+#define	REG_OUTPAY				0x04	
+#define REG_INPAY				0x06	
+#define REG_GCTL				0x08	
+#define REG_WAKEEN				0x0c	
+#define REG_STATESTS			0x0e	
+#define REG_GSTS				0x10	
+#define REG_OUTSTRMPAY			0x18	
+#define REG_INSTRMPAY			0x1a	
+#define REG_INTCTL				0x20	
+#define REG_INTSTS				0x24	
+#define REG_WALCLK				0x30	
+#define REG_SSYNC				0x38	
+#define REG_CORBLBASE			0x40	
+#define REG_CORBUBASE			0x44	
+#define REG_CORBWP				0x48
+#define REG_CORBRP				0x4a
+#define REG_CORBCTL				0x4c	
+#define REG_CORBSTS				0x4d
+#define REG_CORBSIZE			0x4e
+#define REG_RIRBLBASE			0x50
+#define REG_RIRBUBASE			0x54
+#define REG_RIRBWP				0x58	
+#define REG_RINTCNT				0x5a	
+#define REG_RIRBCTL				0x5c	
+#define REG_RIRBSTS				0x5d	
+#define REG_RIRBSIZE			0x5e	
+#define REG_ICOI				0x60
+#define REG_ICII				0x64	
+#define REG_ICIS				0x68	
+#define REG_DPIBLBASE			0x70	
+#define REG_DPIBUBASE			0x74	
+#define REG_SDCTL0				0x80	
+#define REG_SDCTL1				0x81	
+#define REG_SDCTL2				0x82	
+#define REG_SDSTS				0x83	
+#define REG_SDLPIB				0x84
+#define REG_SDCBL				0x88	
+#define REG_SDLVI				0x8C
+#define REG_SDFIFOS				0x90
+#define REG_SDFMT				0x92
+#define REG_SDBDPL				0x98
+#define REG_SDBDPU				0x9C
+
+/************************************
+*	 Bit fields of register			*
+*************************************/
+#define REG_GCAP_64OK				0x0001
+#define REG_GCAP_NSDO_MASK			0x0006
+#define REG_GCAP_NSDO_SHIFT			1
+#define REG_GCAP_BSS_MASK			0x00f8
+#define REG_GCAP_BSS_SHIFT			3
+#define REG_GCAP_ISS_MASK			0x0f00
+#define REG_GCAP_ISS_SHIFT			8
+#define REG_GCAP_OSS_MASK			0xf000
+#define REG_GCAP_OSS_SHIFT			12
+#define REG_GCAP_NSDO_1SDO			0x00
+#define REG_GCAP_NSDO_2SDO			0x02
+#define REG_GCAP_NSDO_4SDO			0x04
+#define REG_GCTL_CRST				0x00000001
+#define REG_GCTL_FCNTRL				0x00000002
+#define REG_GCTL_UNSOL				0x00000100
+#define REG_WAKEEN_SDIWEN_MASK		0x7fff
+#define REG_STATESTS_SDIWAKE_MASK	0x7fff
+#define REG_GSTS_FSTS				0x0002
+#define REG_INTCTL_SIE_MASK			0x3fffffff
+#define REG_INTCTL_CIE				0x40000000
+#define REG_INTCTL_GIE				0x80000000
+#define REG_INTSTS_SIS_MASK			0x3fffffff
+#define REG_INTSTS_CIS				0x40000000
+#define REG_INTSTS_GIS				0x80000000
+#define REG_SSYNC_MASK				0x3fffffff
+#define REG_CORBWP_MASK				0x00ff
+#define REG_CORBRP_MASK				0x00ff
+#define REG_CORBRP_RST				0x8000
+#define REG_CORBCTL_CMEIE			0x01
+#define REG_CORBCTL_CORBRUN			0x02
+#define REG_CORBSTS_CMEI			0x01
+#define REG_CORBSIZE_MASK			0x03
+#define REG_CORBSIZE_CAP_MASK		0xf0
+#define REG_CORBSIZE_CAP_SHIFT		4
+#define REG_CORBSIZE_2				0x00
+#define REG_CORBSIZE_16				0x01
+#define REG_CORBSIZE_256			0x02
+#define REG_CORBSIZE_CAP_2			0x10
+#define REG_CORBSIZE_CAP_16			0x20
+#define REG_CORBSIZE_CAP_256		0x40
+#define REG_RIRBWP_MASK				0x00ff
+#define REG_RIRBWP_RST				0x8000
+#define REG_RINTCNT_MASK			0x00ff
+#define REG_RIRBCTL_RINTCTL			0x01
+#define REG_RIRBCTL_DMAEN			0x02
+#define REG_RIRBCTL_OIC				0x04
+#define REG_RIRBSTS_RINTFL			0x01
+#define REG_RIRBSTS_OIS				0x04
+#define REG_RIRBSIZE_MASK			0x03
+#define REG_RIRBSIZE_CAP_MASK		0xf0
+#define REG_RIRBSIZE_CAP_SHIFT		4
+#define REG_RIRBSIZE_2				0x00
+#define REG_RIRBSIZE_16				0x01
+#define REG_RIRBSIZE_256			0x02
+#define REG_RIRBSIZE_CAP_2			0x10
+#define REG_RIRBSIZE_CAP_16			0x20
+#define REG_RIRBSIZE_CAP_256		0x40
+#define REG_DPLBASE_MASK			0xffffff80
+#define REG_DPLBASE_SHIFT			7
+#define REG_DPLBASE_DMAPBE			0x00000001
+#define REG_SDCTL_SRST				0x000001
+#define REG_SDCTL_RUN				0x000002
+#define REG_SDCTL_IOCE				0x000004
+#define REG_SDCTL_FEIE				0x000008
+#define REG_SDCTL_DEIE				0x000010
+#define REG_SDCTL_STRIPE_MASK		0x030000
+#define REG_SDCTL_STRIPE_SHIFT		16
+#define REG_SDCTL_TP				0x040000
+#define REG_SDCTL_DIR				0x080000
+#define REG_SDCTL2_STRM_MASK		0xf0
+#define REG_SDCTL2_STRM_SHIFT		4
+#define REG_SDSTS_DESE				(1 << 4)
+#define REG_SDSTS_FIFOE				(1 << 3)
+#define REG_SDSTS_BCIS				(1 << 2)
+
+#define REG_ISDOFFSET(n)			(n*0x20)
+#define REG_ISDCTL(n)				(0x80 + REG_ISDOFFSET(n))
+#define REG_ISDSTS(n)				(0x83 + REG_ISDOFFSET(n))
+#define REG_ISDPICB(n)				(0x84 + REG_ISDOFFSET(n))
+#define REG_ISDCBL(n)				(0x88 + REG_ISDOFFSET(n))
+#define REG_ISDLVI(n)				(0x8C + REG_ISDOFFSET(n))
+#define REG_ISDFIFOD(n)				(0x90 + REG_ISDOFFSET(n))
+#define REG_ISDFMT(n)				(0x92 + REG_ISDOFFSET(n))
+#define REG_ISDBDPL(n)				(0x98 + REG_ISDOFFSET(n))
+#define REG_ISDBDPU(n)				(0x9C + REG_ISDOFFSET(n))
+
+#define REG_OSDOFFSET(n, iss)		(iss*0x20 + n*0x20)
+#define REG_OSDCTL(n, iss)			(0x80 + REG_OSDOFFSET(n, iss))
+#define REG_OSDSTS(n, iss)			(0x83 + REG_OSDOFFSET(n, iss))
+#define REG_OSDPICB(n, iss)			(0x84 + REG_OSDOFFSET(n, iss))
+#define REG_OSDCBL(n, iss)			(0x88 + REG_OSDOFFSET(n, iss))
+#define REG_OSDLVI(n, iss)			(0x8C + REG_OSDOFFSET(n, iss))
+#define REG_OSDFIFOD(n, iss)		(0x90 + REG_OSDOFFSET(n, iss))
+#define REG_OSDFMT(n, iss)			(0x92 + REG_OSDOFFSET(n, iss))
+#define REG_OSDBDPL(n, iss)			(0x98 + REG_OSDOFFSET(n, iss))
+#define REG_OSDBDPU(n, iss)			(0x9C + REG_OSDOFFSET(n, iss))
+
+#define REG_BSDOFFSET(n, iss, oss)	(iss*0x20 + oss*0x20 + n*0x20)
+#define REG_BSDCTL(n, iss, oss)		(0x80 + REG_BSDOFFSET(n, iss, oss))
+#define REG_BSDSTS(n, iss, oss)		(0x83 + REG_BSDOFFSET(n, iss, oss))
+#define REG_BSDPICB(n, iss, oss)	(0x84 + REG_BSDOFFSET(n, iss, oss))
+#define REG_BSDCBL(n, iss, oss)		(0x88 + REG_BSDOFFSET(n, iss, oss))
+#define REG_BSDLVI(n, iss, oss)		(0x8C + REG_BSDOFFSET(n, iss, oss))
+#define REG_BSDFIFOD(n, iss, oss)	(0x90 + REG_BSDOFFSET(n, iss, oss))
+#define REG_BSDFMT(n, iss, oss)		(0x92 + REG_BSDOFFSET(n, iss, oss))
+#define REG_BSDBDPL(n, iss, oss)	(0x98 + REG_BSDOFFSET(n, iss, oss))
+#define REG_BSDBDBU(n, iss, oss)	(0x9C + REG_BSDOFFSET(n, iss, oss))
+
+/****************************************************************************
+ * Codec's Verbs Define
+*****************************************************************************/
+#define VERB_GET_PARAMETER								0xf00
+#define VERB_GET_CONN_SELECT_CONTROL					0xf01
+#define VERB_SET_CONN_SELECT_CONTROL					0x701
+#define VERB_GET_CONN_LIST_ENTRY						0xf02
+#define VERB_GET_PROCESSING_STATE						0xf03
+#define VERB_SET_PROCESSING_STATE						0x703
+#define VERB_GET_COEFF_INDEX							0xd
+#define VERB_SET_COEFF_INDEX							0x5
+#define VERB_GET_PROCESSING_COEFF						0xc
+#define VERB_SET_PROCESSING_COEFF						0x4
+#define VERB_GET_AMP_GAIN_MUTE							0xb
+#define VERB_SET_AMP_GAIN								0x3
+#define VERB_GET_CONV_FMT								0xa
+#define VERB_SET_CONV_FMT								0x2
+#define VERB_GET_DIGITAL_CONV_FMT						0xf0d
+#define VERB_SET_DIGITAL_CONV_FMT1						0x70d
+#define VERB_SET_DIGITAL_CONV_FMT2						0x70e
+#define CODEC_CMD_GET_DIGITAL_CONV_FMT_CC_MASK			0x7f00
+#define CODEC_CMD_GET_DIGITAL_CONV_FMT_CC_SHIFT			8
+#define CODEC_CMD_GET_DIGITAL_CONV_FMT_L_MASK			0x0080
+#define CODEC_CMD_GET_DIGITAL_CONV_FMT_L_SHIFT			7
+#define CODEC_CMD_GET_DIGITAL_CONV_FMT_PRO_MASK			0x0040
+#define CODEC_CMD_GET_DIGITAL_CONV_FMT_PRO_SHIFT		6
+#define CODEC_CMD_GET_DIGITAL_CONV_FMT_NAUDIO_MASK		0x0020
+#define CODEC_CMD_GET_DIGITAL_CONV_FMT_NAUDIO_SHIFT		5
+#define CODEC_CMD_GET_DIGITAL_CONV_FMT_COPY_MASK		0x0010
+#define CODEC_CMD_GET_DIGITAL_CONV_FMT_COPY_SHIFT		4
+#define CODEC_CMD_GET_DIGITAL_CONV_FMT_PRE_MASK			0x0008
+#define CODEC_CMD_GET_DIGITAL_CONV_FMT_PRE_SHIFT		3
+#define CODEC_CMD_GET_DIGITAL_CONV_FMT_VCFG_MASK		0x0004
+#define CODEC_CMD_GET_DIGITAL_CONV_FMT_VCFG_SHIFT		2
+#define CODEC_CMD_GET_DIGITAL_CONV_FMT_V_MASK			0x0002
+#define CODEC_CMD_GET_DIGITAL_CONV_FMT_V_SHIFT			1
+#define CODEC_CMD_GET_DIGITAL_CONV_FMT_DIGEN_MASK		0x0001
+#define CODEC_CMD_GET_DIGITAL_CONV_FMT_DIGEN_SHIFT		0
+#define CODEC_CMD_SET_DIGITAL_CONV_FMT1_L				0x80
+#define CODEC_CMD_SET_DIGITAL_CONV_FMT1_PRO				0x40
+#define CODEC_CMD_SET_DIGITAL_CONV_FMT1_NAUDIO			0x20
+#define CODEC_CMD_SET_DIGITAL_CONV_FMT1_COPY			0x10
+#define CODEC_CMD_SET_DIGITAL_CONV_FMT1_PRE				0x08
+#define CODEC_CMD_SET_DIGITAL_CONV_FMT1_VCFG			0x04
+#define CODEC_CMD_SET_DIGITAL_CONV_FMT1_V				0x02
+#define CODEC_CMD_SET_DIGITAL_CONV_FMT1_DIGEN			0x01
+#define VERB_GET_POWER_STATE							0xf05
+#define VERB_SET_POWER_STATE							0x705
+#define CODEC_CMD_POWER_STATE_D0						0x00
+#define CODEC_CMD_POWER_STATE_D1						0x01
+#define CODEC_CMD_POWER_STATE_D2						0x02
+#define CODEC_CMD_POWER_STATE_D3						0x03
+#define CODEC_CMD_POWER_STATE_ACT_MASK					0x000000f0
+#define CODEC_CMD_POWER_STATE_ACT_SHIFT					4
+#define CODEC_CMD_POWER_STATE_SET_MASK					0x0000000f
+#define CODEC_CMD_POWER_STATE_SET_SHIFT					0
+#define VERB_GET_CONV_STREAM_CHAN						0xf06
+#define VERB_SET_CONV_STREAM_CHAN						0x706
+#define CODEC_CMD_CONV_STREAM_CHAN_STREAM_MASK			0x000000f0
+#define CODEC_CMD_CONV_STREAM_CHAN_STREAM_SHIFT			4
+#define CODEC_CMD_CONV_STREAM_CHAN_CHAN_MASK			0x0000000f
+#define CODEC_CMD_CONV_STREAM_CHAN_CHAN_SHIFT			0
+#define VERB_GET_INPUT_CONVERTER_SDI_SELECT				0xf04
+#define VERB_SET_INPUT_CONVERTER_SDI_SELECT				0x704
+#define VERB_GET_PIN_WIDGET_CTRL						0xf07
+#define VERB_SET_PIN_WIDGET_CTRL						0x707
+#define CODEC_CMD_SET_PIN_WIDGET_CTRL_HPHN_ENABLE		0x80
+#define CODEC_CMD_SET_PIN_WIDGET_CTRL_OUT_ENABLE		0x40
+#define CODEC_CMD_SET_PIN_WIDGET_CTRL_IN_ENABLE			0x20
+#define CODEC_CMD_SET_PIN_WIDGET_CTRL_VREF_ENABLE_MASK	0x07
+#define CODEC_CMD_PIN_WIDGET_CTRL_VREF_ENABLE_HIZ		0
+#define CODEC_CMD_PIN_WIDGET_CTRL_VREF_ENABLE_50		1
+#define CODEC_CMD_PIN_WIDGET_CTRL_VREF_ENABLE_GROUND	2
+#define CODEC_CMD_PIN_WIDGET_CTRL_VREF_ENABLE_80		4
+#define CODEC_CMD_PIN_WIDGET_CTRL_VREF_ENABLE_100		5
+#define VERB_GET_UNSOLICITED_RESPONSE					0xf08
+#define VERB_SET_UNSOLICITED_RESPONSE					0x708
+#define CODEC_CMD_GET_UNSOLICITED_RESPONSE_ENABLE_MASK	0x00000080
+#define CODEC_CMD_GET_UNSOLICITED_RESPONSE_ENABLE_SHIFT	7
+#define CODEC_CMD_GET_UNSOLICITED_RESPONSE_TAG_MASK		0x0000001f
+#define CODEC_CMD_SET_UNSOLICITED_RESPONSE_ENABLE		0x80
+#define CODEC_CMD_SET_UNSOLICITED_RESPONSE_TAG_MASK		0x1f
+#define VERB_GET_PIN_SENSE								0xf09
+#define VERB_SET_PIN_SENSE								0x709
+#define CODEC_CMD_GET_PIN_SENSE_PRESENCE_DETECT_MASK	0x80000000
+#define CODEC_CMD_GET_PIN_SENSE_PRESENCE_DETECT_SHIFT	31
+#define CODEC_CMD_GET_PIN_SENSE_IMP_SENSE_MASK			0x7fffffff
+#define CODEC_CMD_GET_PIN_SENSE_IMP_SENSE_INVALID		0x7fffffff
+#define CODEC_CMD_SET_PIN_SENSE_LEFT_CHANNEL			0x00
+#define CODEC_CMD_SET_PIN_SENSE_RIGHT_CHANNEL			0x01
+#define VERB_GET_EAPD_BTL_ENABLE						0xf0c
+#define VERB_SET_EAPD_BTL_ENABLE						0x70c
+#define CODEC_CMD_GET_EAPD_BTL_ENABLE_LR_SWAP_MASK		0x00000004
+#define CODEC_CMD_GET_EAPD_BTL_ENABLE_LR_SWAP_SHIFT		2
+#define CODEC_CMD_GET_EAPD_BTL_ENABLE_EAPD_MASK			0x00000002
+#define CODEC_CMD_GET_EAPD_BTL_ENABLE_EAPD_SHIFT		1
+#define CODEC_CMD_GET_EAPD_BTL_ENABLE_BTL_MASK			0x00000001
+#define CODEC_CMD_GET_EAPD_BTL_ENABLE_BTL_SHIFT			0
+#define CODEC_CMD_SET_EAPD_BTL_ENABLE_LR_SWAP			0x04
+#define CODEC_CMD_SET_EAPD_BTL_ENABLE_EAPD				0x02
+#define CODEC_CMD_SET_EAPD_BTL_ENABLE_BTL				0x01
+#define VERB_GET_GPI_DATA								0xf10
+#define VERB_SET_GPI_DATA								0x710
+#define VERB_GET_GPI_WAKE_ENABLE_MASK					0xf11
+#define VERB_SET_GPI_WAKE_ENABLE_MASK					0x711
+#define VERB_GET_GPI_UNSOLICITED_ENABLE_MASK			0xf12
+#define VERB_SET_GPI_UNSOLICITED_ENABLE_MASK			0x712
+#define VERB_GET_GPI_STICKY_MASK						0xf13
+#define VERB_SET_GPI_STICKY_MASK						0x713
+#define VERB_GET_GPO_DATA								0xf14
+#define VERB_SET_GPO_DATA								0x714
+#define VERB_GET_GPIO_DATA								0xf15
+#define VERB_SET_GPIO_DATA								0x715
+#define VERB_GET_GPIO_ENABLE_MASK						0xf16
+#define VERB_SET_GPIO_ENABLE_MASK						0x716
+#define VERB_GET_GPIO_DIRECTION							0xf17
+#define VERB_SET_GPIO_DIRECTION							0x717
+#define VERB_GET_GPIO_WAKE_ENABLE_MASK					0xf18
+#define VERB_SET_GPIO_WAKE_ENABLE_MASK					0x718
+#define VERB_GET_GPIO_UNSOLICITED_ENABLE_MASK			0xf19
+#define VERB_SET_GPIO_UNSOLICITED_ENABLE_MASK			0x719
+#define VERB_GET_GPIO_STICKY_MASK						0xf1a
+#define VERB_SET_GPIO_STICKY_MASK						0x71a
+#define VERB_GET_BEEP_GENERATION						0xf0a
+#define VERB_SET_BEEP_GENERATION						0x70a
+#define VERB_GET_VOLUME_KNOB							0xf0f
+#define VERB_SET_VOLUME_KNOB							0x70f
+#define VERB_GET_SUBSYSTEM_ID							0xf20
+#define VERB_SET_SUSBYSTEM_ID1							0x720
+#define VERB_SET_SUBSYSTEM_ID2							0x721
+#define VERB_SET_SUBSYSTEM_ID3							0x722
+#define VERB_SET_SUBSYSTEM_ID4							0x723
+#define VERB_GET_CONFIGURATION_DEFAULT					0xf1c
+#define VERB_SET_CONFIGURATION_DEFAULT1					0x71c
+#define VERB_SET_CONFIGURATION_DEFAULT2					0x71d
+#define VERB_SET_CONFIGURATION_DEFAULT3					0x71e
+#define VERB_SET_CONFIGURATION_DEFAULT4					0x71f
+#define VERB_GET_STRIPE_CONTROL							0xf24
+#define VERB_SET_STRIPE_CONTROL							0x724
+#define VERB_FUNCTION_RESET								0x7ff
+
+#define VERB_MASK										0x000fffff
+#define NID_MASK										0x0ff00000
+#define NID_SHIFT										20
+#define CAD_MASK										0xf0000000
+#define CAD_SHIFT										28
+
+#define VERB_4BIT_SHIFT									16
+#define VERB_12BIT_SHIFT								8
+
+#define VERB_4BIT(verb, payload)	(((verb) << VERB_4BIT_SHIFT) | payload)
+#define CMD_4BIT(cad, nid, verb, payload)				\
+    			(((cad) << CAD_SHIFT) |					\
+    			((nid) << NID_SHIFT) |					\
+    			(VERB_4BIT((verb), payload)))
+
+#define VERB_12BIT(verb, payload)	(((verb) << VERB_12BIT_SHIFT) | payload)
+#define CMD_12BIT(cad, nid, verb, payload)				\
+    			(((cad) << CAD_SHIFT) |					\
+    			((nid) << NID_SHIFT) |					\
+    			(VERB_12BIT((verb), payload)))
+
+/****************************************************************************
+ * HDA Device Parameters
+ ****************************************************************************/
+// Vendor ID
+#define CODEC_PARAM_VENDOR_ID							0x00
+#define CODEC_PARAM_VENDOR_ID_MASK						0xffff0000
+#define CODEC_PARAM_VENDOR_ID_SHIFT						16
+#define CODEC_PARAM_DEVICE_ID_MASK						0x0000ffff
+// Revision ID 
+#define CODEC_PARAM_REVISION_ID							0x02
+#define CODEC_PARAM_REVISION_ID_MAJREV_MASK				0x00f00000
+#define CODEC_PARAM_REVISION_ID_MAJREV_SHIFT			20
+#define CODEC_PARAM_REVISION_ID_MINREV_MASK				0x000f0000
+#define CODEC_PARAM_REVISION_ID_MINREV_SHIFT			16
+#define CODEC_PARAM_REVISION_ID_MASK					0x0000ff00
+#define CODEC_PARAM_REVISION_ID_SHIFT					8
+#define CODEC_PARAM_STEPPING_ID_MASK					0x000000ff
+// Subordinate Node Cound
+#define CODEC_PARAM_SUB_NODE_COUNT						0x04
+#define CODEC_PARAM_SUB_NODE_COUNT_START_MASK			0x00ff0000
+#define CODEC_PARAM_SUB_NODE_COUNT_START_SHIFT			16
+#define CODEC_PARAM_SUB_NODE_COUNT_TOTAL_MASK			0x000000ff
+// Function Group Type 
+#define CODEC_PARAM_FCT_GRP_TYPE						0x05
+#define CODEC_PARAM_FCT_GRP_TYPE_UNSOL_MASK				0x00000100
+#define CODEC_PARAM_FCT_GRP_TYPE_UNSOL_SHIFT			8
+#define CODEC_PARAM_FCT_GRP_TYPE_NODE_TYPE_MASK			0x000000ff
+#define CODEC_PARAM_FCT_GRP_TYPE_NODE_TYPE_SHIFT		0
+#define CODEC_PARAM_FUNC_GROUP_TYPE_AUDIO				0x01
+#define CODEC_PARAM_FUNC_GROUP_TYPE_MODEM				0x02
+// Audio Function Group Capabilities
+#define CODEC_PARAM_AUDIO_FCT_GRP_CAP					0x08
+#define CODEC_PARAM_AUDIO_FCT_GRP_CAP_BEEP_GEN_MASK		0x00010000
+#define CODEC_PARAM_AUDIO_FCT_GRP_CAP_BEEP_GEN_SHIFT	16
+#define CODEC_PARAM_AUDIO_FCT_GRP_CAP_INPUT_DELAY_MASK	0x00000f00
+#define CODEC_PARAM_AUDIO_FCT_GRP_CAP_INPUT_DELAY_SHIFT	8
+#define CODEC_PARAM_AUDIO_FCT_GRP_CAP_OUTPUT_DELAY_MASK	0x0000000f
+// Audio WIDGET Capabilities
+#define CODEC_PARAM_WIDGET_CAP							0x09
+#define CODEC_PARAM_WIDGET_CAP_TYPE_MASK				0x00f00000
+#define CODEC_PARAM_WIDGET_CAP_TYPE_SHIFT				20
+#define CODEC_PARAM_WIDGET_CAP_DELAY_MASK				0x000f0000
+#define CODEC_PARAM_WIDGET_CAP_DELAY_SHIFT				16
+#define CODEC_PARAM_WIDGET_CAP_LR_SWAP_MASK				0x00000800
+#define CODEC_PARAM_WIDGET_CAP_LR_SWAP_SHIFT			11
+#define CODEC_PARAM_WIDGET_CAP_POWER_CTRL_MASK			0x00000400
+#define CODEC_PARAM_WIDGET_CAP_POWER_CTRL_SHIFT			10
+#define CODEC_PARAM_WIDGET_CAP_DIGITAL_MASK				0x00000200
+#define CODEC_PARAM_WIDGET_CAP_DIGITAL_SHIFT			9
+#define CODEC_PARAM_WIDGET_CAP_CONN_LIST_MASK			0x00000100
+#define CODEC_PARAM_WIDGET_CAP_CONN_LIST_SHIFT			8
+#define CODEC_PARAM_WIDGET_CAP_UNSOL_CAP_MASK			0x00000080
+#define CODEC_PARAM_WIDGET_CAP_UNSOL_CAP_SHIFT			7
+#define CODEC_PARAM_WIDGET_CAP_PROC_WIDGET_MASK			0x00000040
+#define CODEC_PARAM_WIDGET_CAP_PROC_WIDGET_SHIFT		6
+#define CODEC_PARAM_WIDGET_CAP_STRIPE_MASK				0x00000020
+#define CODEC_PARAM_WIDGET_CAP_STRIPE_SHIFT				5
+#define CODEC_PARAM_WIDGET_CAP_FORMAT_OVR_MASK			0x00000010
+#define CODEC_PARAM_WIDGET_CAP_FORMAT_OVR_SHIFT			4
+#define CODEC_PARAM_WIDGET_CAP_AMP_OVR_MASK				0x00000008
+#define CODEC_PARAM_WIDGET_CAP_AMP_OVR_SHIFT			3
+#define CODEC_PARAM_WIDGET_CAP_OUT_AMP_MASK				0x00000004
+#define CODEC_PARAM_WIDGET_CAP_OUT_AMP_SHIFT			2
+#define CODEC_PARAM_WIDGET_CAP_IN_AMP_MASK				0x00000002
+#define CODEC_PARAM_WIDGET_CAP_IN_AMP_SHIFT				1
+#define CODEC_PARAM_WIDGET_CAP_STEREO_MASK				0x00000001
+#define CODEC_PARAM_WIDGET_CAP_TYPE_AUDIO_OUTPUT		0x0
+#define CODEC_PARAM_WIDGET_CAP_TYPE_AUDIO_INPUT			0x1
+#define CODEC_PARAM_WIDGET_CAP_TYPE_AUDIO_MIXER			0x2
+#define CODEC_PARAM_WIDGET_CAP_TYPE_AUDIO_SELECTOR		0x3
+#define CODEC_PARAM_WIDGET_CAP_TYPE_PIN_COMPLEX			0x4
+#define CODEC_PARAM_WIDGET_CAP_TYPE_POWER_WIDGET		0x5
+#define CODEC_PARAM_WIDGET_CAP_TYPE_VOLUME_WIDGET		0x6
+#define CODEC_PARAM_WIDGET_CAP_TYPE_BEEP_WIDGET			0x7
+#define CODEC_PARAM_WIDGET_CAP_TYPE_VENDOR_WIDGET		0xf
+// Supported PCM Size, Rates 
+#define CODEC_PARAM_SUPP_PCM_SIZE_RATE					0x0a
+#define CODEC_PARAM_SUPP_PCM_SIZE_RATE_32BIT_MASK		0x00100000
+#define CODEC_PARAM_SUPP_PCM_SIZE_RATE_32BIT_SHIFT		20
+#define CODEC_PARAM_SUPP_PCM_SIZE_RATE_24BIT_MASK		0x00080000
+#define CODEC_PARAM_SUPP_PCM_SIZE_RATE_24BIT_SHIFT		19
+#define CODEC_PARAM_SUPP_PCM_SIZE_RATE_20BIT_MASK		0x00040000
+#define CODEC_PARAM_SUPP_PCM_SIZE_RATE_20BIT_SHIFT		18
+#define CODEC_PARAM_SUPP_PCM_SIZE_RATE_16BIT_MASK		0x00020000
+#define CODEC_PARAM_SUPP_PCM_SIZE_RATE_16BIT_SHIFT		17
+#define CODEC_PARAM_SUPP_PCM_SIZE_RATE_8BIT_MASK		0x00010000
+#define CODEC_PARAM_SUPP_PCM_SIZE_RATE_8BIT_SHIFT		16
+#define CODEC_PARAM_SUPP_PCM_SIZE_RATE_8KHZ_MASK		0x00000001
+#define CODEC_PARAM_SUPP_PCM_SIZE_RATE_8KHZ_SHIFT		0
+#define CODEC_PARAM_SUPP_PCM_SIZE_RATE_11KHZ_MASK		0x00000002
+#define CODEC_PARAM_SUPP_PCM_SIZE_RATE_11KHZ_SHIFT		1
+#define CODEC_PARAM_SUPP_PCM_SIZE_RATE_16KHZ_MASK		0x00000004
+#define CODEC_PARAM_SUPP_PCM_SIZE_RATE_16KHZ_SHIFT		2
+#define CODEC_PARAM_SUPP_PCM_SIZE_RATE_22KHZ_MASK		0x00000008
+#define CODEC_PARAM_SUPP_PCM_SIZE_RATE_22KHZ_SHIFT		3
+#define CODEC_PARAM_SUPP_PCM_SIZE_RATE_32KHZ_MASK		0x00000010
+#define CODEC_PARAM_SUPP_PCM_SIZE_RATE_32KHZ_SHIFT		4
+#define CODEC_PARAM_SUPP_PCM_SIZE_RATE_44KHZ_MASK		0x00000020
+#define CODEC_PARAM_SUPP_PCM_SIZE_RATE_44KHZ_SHIFT		5
+#define CODEC_PARAM_SUPP_PCM_SIZE_RATE_48KHZ_MASK		0x00000040
+#define CODEC_PARAM_SUPP_PCM_SIZE_RATE_48KHZ_SHIFT		6
+#define CODEC_PARAM_SUPP_PCM_SIZE_RATE_88KHZ_MASK		0x00000080
+#define CODEC_PARAM_SUPP_PCM_SIZE_RATE_88KHZ_SHIFT		7
+#define CODEC_PARAM_SUPP_PCM_SIZE_RATE_96KHZ_MASK		0x00000100
+#define CODEC_PARAM_SUPP_PCM_SIZE_RATE_96KHZ_SHIFT		8
+#define CODEC_PARAM_SUPP_PCM_SIZE_RATE_176KHZ_MASK		0x00000200
+#define CODEC_PARAM_SUPP_PCM_SIZE_RATE_176KHZ_SHIFT		9
+#define CODEC_PARAM_SUPP_PCM_SIZE_RATE_192KHZ_MASK		0x00000400
+#define CODEC_PARAM_SUPP_PCM_SIZE_RATE_192KHZ_SHIFT		10
+#define CODEC_PARAM_SUPP_PCM_SIZE_RATE_384KHZ_MASK		0x00000800
+#define CODEC_PARAM_SUPP_PCM_SIZE_RATE_384KHZ_SHIFT		11
+// Supported Stream Formats 
+#define CODEC_PARAM_SUPP_STREAM_FORMATS					0x0b
+#define CODEC_PARAM_SUPP_STREAM_FORMATS_AC3_MASK		0x00000004
+#define CODEC_PARAM_SUPP_STREAM_FORMATS_AC3_SHIFT		2
+#define CODEC_PARAM_SUPP_STREAM_FORMATS_FLOAT32_MASK	0x00000002
+#define CODEC_PARAM_SUPP_STREAM_FORMATS_FLOAT32_SHIFT	1
+#define CODEC_PARAM_SUPP_STREAM_FORMATS_PCM_MASK		0x00000001
+#define CODEC_PARAM_SUPP_STREAM_FORMATS_PCM_SHIFT		0
+// Pin Capabilities 
+#define CODEC_PARAM_PIN_CAP								0x0c
+#define CODEC_PARAM_PIN_CAP_EAPD_CAP_MASK				0x00010000
+#define CODEC_PARAM_PIN_CAP_EAPD_CAP_SHIFT				16
+#define CODEC_PARAM_PIN_CAP_VREF_CTRL_MASK				0x0000ff00
+#define CODEC_PARAM_PIN_CAP_VREF_CTRL_SHIFT				8
+#define CODEC_PARAM_PIN_CAP_VREF_CTRL_100_MASK			0x00002000
+#define CODEC_PARAM_PIN_CAP_VREF_CTRL_100_SHIFT			13
+#define CODEC_PARAM_PIN_CAP_VREF_CTRL_80_MASK			0x00001000
+#define CODEC_PARAM_PIN_CAP_VREF_CTRL_80_SHIFT			12
+#define CODEC_PARAM_PIN_CAP_VREF_CTRL_GROUND_MASK		0x00000400
+#define CODEC_PARAM_PIN_CAP_VREF_CTRL_GROUND_SHIFT		10
+#define CODEC_PARAM_PIN_CAP_VREF_CTRL_50_MASK			0x00000200
+#define CODEC_PARAM_PIN_CAP_VREF_CTRL_50_SHIFT			9
+#define CODEC_PARAM_PIN_CAP_VREF_CTRL_HIZ_MASK			0x00000100
+#define CODEC_PARAM_PIN_CAP_VREF_CTRL_HIZ_SHIFT			8
+#define CODEC_PARAM_PIN_CAP_BALANCED_IO_PINS_MASK		0x00000040
+#define CODEC_PARAM_PIN_CAP_BALANCED_IO_PINS_SHIFT		6
+#define CODEC_PARAM_PIN_CAP_INPUT_CAP_MASK				0x00000020
+#define CODEC_PARAM_PIN_CAP_INPUT_CAP_SHIFT				5
+#define CODEC_PARAM_PIN_CAP_OUTPUT_CAP_MASK				0x00000010
+#define CODEC_PARAM_PIN_CAP_OUTPUT_CAP_SHIFT			4
+#define CODEC_PARAM_PIN_CAP_HEADPHONE_CAP_MASK			0x00000008
+#define CODEC_PARAM_PIN_CAP_HEADPHONE_CAP_SHIFT			3
+#define CODEC_PARAM_PIN_CAP_PRESENCE_DETECT_CAP_MASK	0x00000004
+#define CODEC_PARAM_PIN_CAP_PRESENCE_DETECT_CAP_SHIFT	2
+#define CODEC_PARAM_PIN_CAP_TRIGGER_REQD_MASK			0x00000002
+#define CODEC_PARAM_PIN_CAP_TRIGGER_REQD_SHIFT			1
+#define CODEC_PARAM_PIN_CAP_IMP_SENSE_CAP_MASK			0x00000001
+#define CODEC_PARAM_PIN_CAP_IMP_SENSE_CAP_SHIFT			0
+// Input Amplifier Capabilities 
+#define CODEC_PARAM_INPUT_AMP_CAP						0x0d
+#define CODEC_PARAM_INPUT_AMP_CAP_MUTE_CAP_MASK			0x80000000
+#define CODEC_PARAM_INPUT_AMP_CAP_MUTE_CAP_SHIFT		31
+#define CODEC_PARAM_INPUT_AMP_CAP_STEPSIZE_MASK			0x007f0000
+#define CODEC_PARAM_INPUT_AMP_CAP_STEPSIZE_SHIFT		16
+#define CODEC_PARAM_INPUT_AMP_CAP_NUMSTEPS_MASK			0x00007f00
+#define CODEC_PARAM_INPUT_AMP_CAP_NUMSTEPS_SHIFT		8
+#define CODEC_PARAM_INPUT_AMP_CAP_OFFSET_MASK			0x0000007f
+#define CODEC_PARAM_INPUT_AMP_CAP_OFFSET_SHIFT			0
+// Output Amplifier Capabilities 
+#define CODEC_PARAM_OUTPUT_AMP_CAP						0x12
+#define CODEC_PARAM_OUTPUT_AMP_CAP_MUTE_CAP_MASK		0x80000000
+#define CODEC_PARAM_OUTPUT_AMP_CAP_MUTE_CAP_SHIFT		31
+#define CODEC_PARAM_OUTPUT_AMP_CAP_NUMSTEPS_MASK		0x00007f00
+#define CODEC_PARAM_OUTPUT_AMP_CAP_NUMSTEPS_SHIFT		8
+#define CODEC_PARAM_OUTPUT_AMP_CAP_OFFSET_MASK			0x0000007f
+#define CODEC_PARAM_OUTPUT_AMP_CAP_OFFSET_SHIFT			0
+// Connection List Length 
+#define CODEC_PARAM_CONN_LIST_LENGTH					0x0e
+#define CODEC_PARAM_CONN_LIST_LENGTH_LONG_FORM_MASK		0x00000080
+#define CODEC_PARAM_CONN_LIST_LENGTH_LONG_FORM_SHIFT	7
+#define CODEC_PARAM_CONN_LIST_LENGTH_LIST_LENGTH_MASK	0x0000007f
+// Supported Power States 
+#define CODEC_PARAM_SUPP_POWER_STATES					0x0f
+#define CODEC_PARAM_SUPP_POWER_STATES_D3_MASK			0x00000008
+#define CODEC_PARAM_SUPP_POWER_STATES_D3_SHIFT			3
+#define CODEC_PARAM_SUPP_POWER_STATES_D2_MASK			0x00000004
+#define CODEC_PARAM_SUPP_POWER_STATES_D2_SHIFT			2
+#define CODEC_PARAM_SUPP_POWER_STATES_D1_MASK			0x00000002
+#define CODEC_PARAM_SUPP_POWER_STATES_D1_SHIFT			1
+#define CODEC_PARAM_SUPP_POWER_STATES_D0_MASK			0x00000001
+#define CODEC_PARAM_SUPP_POWER_STATES_D0_SHIFT			0
+// Processing Capabilities 
+#define CODEC_PARAM_PROCESSING_CAP						0x10
+#define CODEC_PARAM_PROCESSING_CAP_NUMCOEFF_MASK		0x0000ff00
+#define CODEC_PARAM_PROCESSING_CAP_NUMCOEFF_SHIFT		8
+#define CODEC_PARAM_PROCESSING_CAP_BENIGN_MASK			0x00000001
+// GPIO Count 
+#define CODEC_PARAM_GPIO_COUNT							0x11
+#define CODEC_PARAM_GPIO_COUNT_GPI_WAKE_MASK			0x80000000
+#define CODEC_PARAM_GPIO_COUNT_GPI_WAKE_SHIFT			31
+#define CODEC_PARAM_GPIO_COUNT_GPI_UNSOL_MASK			0x40000000
+#define CODEC_PARAM_GPIO_COUNT_GPI_UNSOL_SHIFT			30
+#define CODEC_PARAM_GPIO_COUNT_NUM_GPI_MASK				0x00ff0000
+#define CODEC_PARAM_GPIO_COUNT_NUM_GPI_SHIFT			16
+#define CODEC_PARAM_GPIO_COUNT_NUM_GPO_MASK				0x0000ff00
+#define CODEC_PARAM_GPIO_COUNT_NUM_GPO_SHIFT			8
+#define CODEC_PARAM_GPIO_COUNT_NUM_GPIO_MASK			0x000000ff
+// Volume Knob Capabilities 
+#define CODEC_PARAM_VOLUME_KNOB_CAP						0x13
+#define CODEC_PARAM_VOLUME_KNOB_CAP_DELTA_MASK			0x00000080
+#define CODEC_PARAM_VOLUME_KNOB_CAP_DELTA_SHIFT			7
+#define CODEC_PARAM_VOLUME_KNOB_CAP_NUM_STEPS_MASK		0x0000007f
+#define CODEC_PARAM_VOLUME_KNOB_CAP_NUM_STEPS_SHIFT		0
+
+#define HDA_DEFAULT_CONFIG_SEQUENCE_MASK				0x0000000f
+#define HDA_DEFAULT_CONFIG_ASSOCIATION_MASK				0x000000f0
+#define HDA_DEFAULT_CONFIG_MISC_MASK					0x00000f00
+#define HDA_DEFAULT_CONFIG_COLOR_MASK					0x0000f000
+#define HDA_DEFAULT_CONFIG_CONNECTION_TYPE_MASK			0x00f00000
+#define HDA_DEFAULT_CONFIG_DEVICE_MASK					0x00f00000
+#define HDA_DEFAULT_CONFIG_LOCATION_MASK				0x3f000000
+#define HDA_DEFAULT_CONFIG_CONNECTIVITY_MASK			0xc0000000
+#define HDA_DEFAULT_CONFIG_CONNECTIVITY_JACK			(0<<30)
+#define HDA_DEFAULT_CONFIG_CONNECTIVITY_NONE			(1<<30)
+#define HDA_DEFAULT_CONFIG_CONNECTIVITY_FIXED			(2<<30)
+#define HDA_DEFAULT_CONFIG_CONNECTIVITY_BOTH			(3<<30)
+#define HDA_DEFAULT_CONFIG_DEVICE_LINE_OUT				(0<<20)
+#define HDA_DEFAULT_CONFIG_DEVICE_SPEAKER				(1<<20)
+#define HDA_DEFAULT_CONFIG_DEVICE_HP_OUT				(2<<20)
+#define HDA_DEFAULT_CONFIG_DEVICE_CD					(3<<20)
+#define HDA_DEFAULT_CONFIG_DEVICE_SPDIF_OUT				(4<<20)
+#define HDA_DEFAULT_CONFIG_DEVICE_DIGITAL_OTHER_OUT		(5<<20)
+#define HDA_DEFAULT_CONFIG_DEVICE_MODEM_LINE			(6<<20)
+#define HDA_DEFAULT_CONFIG_DEVICE_MODEM_HANDSET			(7<<20)
+#define HDA_DEFAULT_CONFIG_DEVICE_LINE_IN				(8<<20)
+#define HDA_DEFAULT_CONFIG_DEVICE_AUX					(9<<20)
+#define HDA_DEFAULT_CONFIG_DEVICE_MIC_IN				(10<<20)
+#define HDA_DEFAULT_CONFIG_DEVICE_TELEPHONY				(11<<20)
+#define HDA_DEFAULT_CONFIG_DEVICE_SPDIF_IN				(12<<20)
+#define HDA_DEFAULT_CONFIG_DEVICE_DIGITAL_OTHER_IN		(13<<20)
+#define HDA_DEFAULT_CONFIG_DEVICE_OTHER					(15<<20)
+
+#define GET_START_NODE(param)				\
+    	(((param) & CODEC_PARAM_SUB_NODE_COUNT_START_MASK) >> CODEC_PARAM_SUB_NODE_COUNT_START_SHIFT)
+#define GET_TOTAL_NODE_COUNT(param)		((param) & CODEC_PARAM_SUB_NODE_COUNT_TOTAL_MASK)
+
+#define GET_WIDGET_TYPE(param)				\
+	    (((param) & CODEC_PARAM_WIDGET_CAP_TYPE_MASK) >> CODEC_PARAM_WIDGET_CAP_TYPE_SHIFT)
+#define GET_AMP_MUTE(param)                              \
+           (((param) & CODEC_PARAM_OUTPUT_AMP_CAP_MUTE_CAP_MASK) >> CODEC_PARAM_OUTPUT_AMP_CAP_MUTE_CAP_SHIFT)
+#define GET_AMP_0DB_STEP(param)				\
+    	(((param) & CODEC_PARAM_OUTPUT_AMP_CAP_OFFSET_MASK) >> CODEC_PARAM_OUTPUT_AMP_CAP_OFFSET_SHIFT)
+
+#define GET_AMP_NUM_STEPS(param)				\
+    	(((param) & CODEC_PARAM_OUTPUT_AMP_CAP_NUMSTEPS_MASK) >> CODEC_PARAM_OUTPUT_AMP_CAP_NUMSTEPS_SHIFT)
+    
+#define GET_SUPPORTED_BSS(gcap)						\
+		(((gcap) & REG_GCAP_BSS_MASK) >> REG_GCAP_BSS_SHIFT)
+#define GET_SUPPORTED_ISS(gcap)						\
+		(((gcap) & REG_GCAP_ISS_MASK) >> REG_GCAP_ISS_SHIFT)
+#define GET_SUPPORTED_OSS(gcap)						\
+		(((gcap) & REG_GCAP_OSS_MASK) >> REG_GCAP_OSS_SHIFT)
+
+#define CHECK_SDIWAKE(statests, n)				\
+    	((((statests) & REG_STATESTS_SDIWAKE_MASK) >> (n)) & 0x0001)
+
+
+#define HDA_BOOTVERBOSE(stmt)	do {			\
+	if ( 0) {	\
+		stmt					\
+	}						\
+} while(0)
+
+
+#define FLAG_MATCH(RegValue, Flag)	(((RegValue) & (Flag)) == (Flag))
+
+
+#define GetCodecID(d)						\
+		((UINT)((d == NULL) ? 0x00000000 :			\
+		((((UINT)(d)->sVendorID & 0x0000ffff) << 16) |	\
+		((UINT)(d)->sDeviceID & 0x0000ffff))))
+
+#define HDA_READ_REG_1(mem, offset)					\
+	ReadBusMasterUCHAR( (PUCHAR)((mem)->iMemTag + (offset)))
+#define HDA_READ_REG_2(mem, offset)					\
+	ReadBusMasterUSHORT( (PUSHORT)((mem)->iMemTag + (offset)))
+#define HDA_READ_REG_4(mem, offset)					\
+	ReadBusMasterULONG( (PULONG)((mem)->iMemTag + (offset)))
+#define HDA_WRITE_REG_1(mem, offset, value)				\
+	WriteBusMasterUCHAR((PUCHAR)((mem)->iMemTag + (offset)), (value) ) 
+#define HDA_WRITE_REG_2(mem, offset, value)				\
+	WriteBusMasterUSHORT((PUSHORT)((mem)->iMemTag + (offset)), (value) )
+#define HDA_WRITE_REG_4(mem, offset, value)				\
+	WriteBusMasterULONG((PULONG)((mem)->iMemTag + (offset)), (value) )
+
+#define align_size(size, alignment_size) \
+	((size)%(alignment_size)) ? ( (size)-((size)%(alignment_size))) + (alignment_size) : (size);	
+
+
+#define RIRB_RESPONSE_EX_CAD_MASK					0x0000000f
+#define RIRB_RESPONSE_EX_UNSOLICITED				0x00000010
+
+typedef UINT type_nid;
+
+typedef struct _Buf_Desc_List {	
+	volatile UINT iAddrLow;
+	volatile UINT iAddrHigh;
+	volatile UINT iLength;
+	volatile UINT iIOC;		//Interrupt On Completion
+}Buf_Desc_List, PBuf_Desc_List;
+
+
+typedef struct _mem_desc {
+	UINT iMemRid;
+	UINT iMemTag;
+	UINT iMemHandle;
+	PHYSICAL_ADDRESS HDALowBaseAddr;	
+	PHYSICAL_ADDRESS MappedAddress;
+	
+}mem_desc, Pmem_desc;
+
+typedef struct _dma_desc {	
+	PHYSICAL_ADDRESS	DmaPhysicalAddr;
+	UINT 	iDmaSize;
+	PVOID	DmaVirtualAddr;
+}dma_desc, Pdma_desc;
+
+typedef struct _rirb_fmt {
+	UINT	iResponse;
+	UINT	iResp_Ex;
+} rirb_fmt, Prirb_fmt;
+
+typedef struct _cmd_list {
+	UINT	iNumCmds;
+	UINT	*pVerbs;
+	UINT	*pRespons;
+}cmd_list, Pcmd_list;
+
+typedef struct _codec_desc {
+	type_nid	cad;
+	UINT	iVerbsSent;
+	UINT	iResponRcved;
+	cmd_list *pCmd_List;
+}Codec_desc, PCodec_desc;
+
+typedef	struct _WIDGET_Param{
+	UINT iWidgetCap;
+	UINT iOutAmpCap;
+	UINT iInAmpCap;
+	UINT iSupportedFormats;
+	UINT iSuppPcmSizeRate;
+} WIDGET_Param, PWIDGET_Param;
+
+typedef	struct _WIDGET_Pin{
+	UINT iPinConfig;
+	UINT iPinCap;
+	UINT iPinCtrl;
+} WIDGET_Pin, PWIDGET_Pin;
+		
+typedef struct _WIDGET {
+	type_nid nid;
+	UINT iWgtType;
+	UINT iWgtEnable;
+	UINT iPathType;
+	UINT iNumConns;
+	int iCurrConnIdx;
+	WIDGET_Param Param;
+	WIDGET_Pin Pin;
+	type_nid ConListEntry[HDA_MAX_CONNS];
+}WIDGET, PWIDGET;
+
+typedef struct _audio_pCtl {
+	UINT iCtlEnable;
+	UINT iMuted;
+	UINT iIndex;
+	UINT iDirection;	
+	UINT iStep0Db;
+	UINT iNumSteps;
+	UINT iLeftVol, iRightVol;
+	WIDGET *pWidget;
+}Audio_Ctl, PAudio_Ctl;
+
+typedef struct _Fun_Group_Audio{
+	UINT iOutAmpCap;
+	UINT iInAmpCap;
+	UINT iSupportedFormats;
+	UINT iSuppPcmSizeRate;
+	UINT iCtlCnt;
+	Audio_Ctl *pCtl;
+} Fun_Group_Audio, PFun_Group_Audio;
+
+typedef struct _devinfo {
+	USHORT sVendorID;
+	USHORT sDeviceID;
+	UCHAR cRevisionID;
+	UCHAR cSteppingID;
+	UCHAR cFuncGroupType;
+	type_nid nid;
+	type_nid StartNode, EndNode;
+	UINT iNodeCnt;
+	Codec_desc *pCodec;
+	WIDGET *pWidget;
+	Fun_Group_Audio	AudioFun;
+}DEVINFO, PDEVINFO;
+
+
+typedef struct _channel_desc {
+	UINT iFormat;
+	UINT iSampleRate;
+	UINT iSupportedFormats, iSuppPcmSizeRate;
+	UINT iStatus;
+	UINT iDirection;
+	UINT iOffset;
+	UINT iStreamID;
+	type_nid ConvNid[16];
+}Channel_desc, PChannel_desc;
+
+typedef struct _hda_core {	
+	CRITICAL_SECTION cri_sec;
+	UINT 	iPCI_SubVendor;
+
+	UINT	iNumIss;
+	UINT	iNumOss;
+	UINT	iNumBss;
+
+	UINT	iCorbSize;
+	UINT	iCorb_wp;
+	UINT	iRirbSize;
+	UINT	iRirb_rp;
+
+	UINT	iUnsolicQ_rp;
+	UINT	iUnsolicQ_wp;
+	UINT	iUnsolicQ_st;
+	UINT	iUnsolicQ[MAX_UNSOLIC_Q];
+
+	mem_desc 	mem;
+	dma_desc 	Dma_Corb;	
+	dma_desc	Dma_Rirb;	
+	Channel_desc	*channel;
+	Codec_desc 		*codecs[HDA_MAX_CODEC];
+} Hda_Core, PHda_Core;
+
+#endif		//_HDA_CTRL_H_

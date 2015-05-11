@@ -1,0 +1,174 @@
+;*********************BEGIN INTEL PLATFORM.REG ADDITIONS************************
+
+;***MERGE this into your platform.reg file***
+
+; Intel(R) 8255x Registry configuration, if enabled
+IF CEPB_INTELFE_PCI
+
+;Create registry information for Intel(R) Miniport Driver
+
+[HKEY_LOCAL_MACHINE\Comm\E100WEC7]
+   "DisplayName"="Intel(R) Fast Ethernet Controller"
+   "Group"="NDIS"
+   "ImagePath"="e100wec7.dll"
+
+
+;Create registry information for template (will be copied to ALL instances of
+;adapters using the Intel Miniport Driver)
+
+[HKEY_LOCAL_MACHINE\Drivers\BuiltIn\PCI\Template\E100WEC7]
+;PCI Bus Enumeration Information
+   "Class"=dword:02
+   "SubClass"=dword:00
+   "ProgIF"=dword:0
+   "VendorID"=multi_sz:"8086","8086","8086","8086","8086","8086","8086","8086","8086","8086","8086","8086","8086"
+   "DeviceID"=multi_sz:"1229","2449","1031","1032","1033","1034","1035","1036","1037","1038","1039","103A","103B"
+   "Dll"="NDIS.dll"
+   "Entry"="NdisPCIBusDeviceInit"
+   "Transceiver"=dword:3
+   "MiniPort"="E100WEC7"
+;Installable ISR Handler Information
+   "IsrDll"="giisr.dll"
+   "IsrHandler"="ISRHandler"
+   "PortIsIO"=dword:0
+   "PortOffset"=dword:0
+   "PortSize"=dword:2
+   "PortMask"=dword:FF00
+
+;Settings for DHCP IP Configuration, if enabled
+IF DHCP
+[HKEY_LOCAL_MACHINE\COMM\PCI\E100WEC71\Parms\TcpIp]
+   "EnableDHCP"=dword:1
+   ; This should be MULTI_SZ
+   "DefaultGateway"=""
+   ; Use zero for broadcast address? (or 255.255.255.255)
+   "UseZeroBroadcast"=dword:0
+   ; This should be MULTI_SZ, the IP address list
+   "IpAddress"="0.0.0.0"
+   ; This should be MULTI_SZ, the subnet masks for the above IP addresses
+   "Subnetmask"="0.0.0.0"
+ENDIF ;//DHCP
+
+;Settings for static IP configuration, if enabled
+IF STATIC_IP
+[HKEY_LOCAL_MACHINE\COMM\PCI\E100WEC71\Parms\TcpIp]
+   "EnableDHCP"=dword:0
+   ; This should be MULTI_SZ
+   "DefaultGateway"="1.2.3.0"
+   ; Use zero for broadcast address? (or 255.255.255.255)
+   "UseZeroBroadcast"=dword:0
+   ; This should be MULTI_SZ, the IP address list
+   "IpAddress"="1.2.3.4"
+   ; This should be MULTI_SZ, the subnet masks for the above IP addresses
+   "Subnetmask"="255.0.0.0"
+ENDIF ;//Static IP
+
+[HKEY_LOCAL_MACHINE\Comm\E100WEC7B]
+   "DisplayName"="Intel(R) Fast Ethernet Controller"
+   "Group"="NDIS"
+   "ImagePath"="e100wec7.dll"
+
+
+;Create registry information for template (will be copied to ALL instances of
+;adapters using the Intel Miniport Driver)
+
+[HKEY_LOCAL_MACHINE\Drivers\BuiltIn\PCI\Template\E100WEC7B]
+;PCI Bus Enumeration Information
+   "Class"=dword:02
+   "SubClass"=dword:00
+   "ProgIF"=dword:0
+   "VendorID"=multi_sz:"8086","8086","8086","8086","8086","8086","8086","8086","8086","8086","8086"
+   "DeviceID"=multi_sz:"103C","103D","103E","1050","1051","1052","1053","1054","1055","1056","1057"
+   "Dll"="NDIS.dll"
+   "Entry"="NdisPCIBusDeviceInit"
+   "Transceiver"=dword:3
+;Installable ISR Handler Information
+   "IsrDll"="giisr.dll"
+   "IsrHandler"="ISRHandler"
+   "PortIsIO"=dword:0
+   "PortOffset"=dword:0
+   "PortSize"=dword:2
+   "PortMask"=dword:FF00
+
+;Settings for DHCP IP Configuration, if enabled
+IF DHCP
+[HKEY_LOCAL_MACHINE\COMM\PCI\E100WEC7B1\Parms\TcpIp]
+   "EnableDHCP"=dword:1
+   ; This should be MULTI_SZ
+   "DefaultGateway"=""
+   ; Use zero for broadcast address? (or 255.255.255.255)
+   "UseZeroBroadcast"=dword:0
+   ; This should be MULTI_SZ, the IP address list
+   "IpAddress"="0.0.0.0"
+   ; This should be MULTI_SZ, the subnet masks for the above IP addresses
+   "Subnetmask"="0.0.0.0"
+ENDIF ;//DHCP
+
+;Settings for static IP configuration, if enabled
+IF STATIC_IP
+[HKEY_LOCAL_MACHINE\COMM\PCI\E100WEC7B1\Parms\TcpIp]
+   "EnableDHCP"=dword:0
+   ; This should be MULTI_SZ
+   "DefaultGateway"="1.2.3.0"
+   ; Use zero for broadcast address? (or 255.255.255.255)
+   "UseZeroBroadcast"=dword:0
+   ; This should be MULTI_SZ, the IP address list
+   "IpAddress"="1.2.3.4"
+   ; This should be MULTI_SZ, the subnet masks for the above IP addresses
+   "Subnetmask"="255.0.0.0"
+ENDIF ;//Static IP
+
+[HKEY_LOCAL_MACHINE\Comm\E100WEC7C]
+   "DisplayName"="Intel(R) Fast Ethernet Controller"
+   "Group"="NDIS"
+   "ImagePath"="e100wec7.dll"
+
+[HKEY_LOCAL_MACHINE\Drivers\BuiltIn\PCI\Template\E100WEC7C]
+;PCI Bus Enumeration Information
+   "Class"=dword:02
+   "SubClass"=dword:00
+   "ProgIF"=dword:0
+   "VendorID"=multi_sz:"8086","8086","8086","8086","8086","8086","8086","8086","8086","8086","8086","8086","8086","8086"
+   "DeviceID"=multi_sz:"1064","1065","1066","1067","1068","1069","106A","106B","1091","1092","1093","1094","1095","27DC"
+   "Dll"="NDIS.dll"
+   "Entry"="NdisPCIBusDeviceInit"
+   "Transceiver"=dword:3
+;Installable ISR Handler Information
+   "IsrDll"="giisr.dll"
+   "IsrHandler"="ISRHandler"
+   "PortIsIO"=dword:0
+   "PortOffset"=dword:0
+   "PortSize"=dword:2
+   "PortMask"=dword:FF00
+
+;Settings for DHCP IP Configuration, if enabled
+IF DHCP
+[HKEY_LOCAL_MACHINE\COMM\PCI\E100WEC7C1\Parms\TcpIp]
+   "EnableDHCP"=dword:1
+   ; This should be MULTI_SZ
+   "DefaultGateway"=""
+   ; Use zero for broadcast address? (or 255.255.255.255)
+   "UseZeroBroadcast"=dword:0
+   ; This should be MULTI_SZ, the IP address list
+   "IpAddress"="0.0.0.0"
+   ; This should be MULTI_SZ, the subnet masks for the above IP addresses
+   "Subnetmask"="0.0.0.0"
+ENDIF ;//DHCP
+
+;Settings for static IP configuration, if enabled
+IF STATIC_IP
+[HKEY_LOCAL_MACHINE\COMM\PCI\E100WEC7C1\Parms\TcpIp]
+   "EnableDHCP"=dword:0
+   ; This should be MULTI_SZ
+   "DefaultGateway"="1.2.3.0"
+   ; Use zero for broadcast address? (or 255.255.255.255)
+   "UseZeroBroadcast"=dword:0
+   ; This should be MULTI_SZ, the IP address list
+   "IpAddress"="1.2.3.4"
+   ; This should be MULTI_SZ, the subnet masks for the above IP addresses
+   "Subnetmask"="255.0.0.0"
+ENDIF ;//Static IP
+
+ENDIF ;//Intel(R) miniport registry additions
+
+;*********************END INTEL PLATFORM.REG ADDITIONS************************

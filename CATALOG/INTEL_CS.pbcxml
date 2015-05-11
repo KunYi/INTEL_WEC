@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<CatalogFile xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" RequiredVersion="7.00" xmlns="urn:Microsoft.PlatformBuilder/Catalog">
+  <FileInformation Id="FileInformation:Intel Corporation:INTEL_CS">
+    <Title>INTEL_CS</Title>
+    <Description>INTEL_CS BSP Catalog Items</Description>
+    <Vendor>Intel Corporation</Vendor>
+    <OSVersion>7.00</OSVersion>
+    <FileVersion>3.0.0</FileVersion>
+  </FileInformation>
+  <Bsp Id="Bsp:Intel Corporation:INTEL_CS:X86">
+    <Title>INTEL_CS: X86</Title>
+    <Description>Intel WEC7 BSP</Description>
+    <PlatformDirectory>INTEL_CS</PlatformDirectory>
+    <CpuId>Cpu:X86</CpuId>
+  </Bsp>
+</CatalogFile>

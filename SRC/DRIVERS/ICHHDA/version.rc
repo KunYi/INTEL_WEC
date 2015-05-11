@@ -1,0 +1,121 @@
+/*+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+**
+** Copyright (c) Intel Corporation (2000).
+**
+** INTEL MAKES NO WARRANTY OF ANY KIND REGARDING THE CODE.  THIS CODE IS LICENSED
+** ON AN "AS IS" BASIS AND INTEL WILL NOT PROVIDE ANY SUPPORT, ASSISTANCE,
+** INSTALLATION, TRAINING OR OTHER SERVICES.  INTEL DOES NOT PROVIDE ANY UPDATES,
+** ENHANCEMENTS OR EXTENSIONS.  INTEL SPECIFICALLY DISCLAIMS ANY WARRANTY OF
+** MERCHANTABILITY, NONINFRINGEMENT, FITNESS FOR ANY PARTICULAR PURPOSE, OR ANY
+** OTHER WARRANTY.  Intel disclaims all liability, including liability for
+** infringement of any proprietary rights, relating to use of the code. No license,
+** express or implied, by estoppel or otherwise, to any intellectual property
+** rights is granted herein.
+**
+**
+** File Name:   version.rc      
+**
+** Abstract:    Resource file to build version information into the HD wave driver
+**
+** Authors:     Alan Previn
+**
+** Notes:
+**
+** Items In File:
+**              
+**
+**+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+*/
+#include "version.h"
+
+#define VER_PRODUCTNAME_STR         "Intel(R) Embedded Audio Driver"
+
+#define VER_COMPANYNAME_STR         "Intel Corporation"
+#define VER_LEGALCOPYRIGHT_STR      "Copyright \251 2004-2005 Intel Corporation\0"
+
+
+#define VER_FILEDESCRIPTION_STR "Intel(R) Embedded Audio Driver"
+#define VER_INTERNALNAME_STR "ichuam"
+#define VER_ORIGINALFILENAME_STR "ichuam.dll"
+
+#define VER_FILETYPE VFT_DRV
+#define VER_FILESUBTYPE VFT2_UNKNOWN
+
+#define VER_OS VOS_NT
+
+
+#if defined(APSTUDIO_INVOKED)
+
+1 BITMAP "Never edit this file with APSTUDIO!"
+
+#endif
+
+// ==========================================================================
+
+#define VER_PRODUCTVERSION          DIP_VER_MAJOR,DIP_VER_MINOR,DIP_VER_BUILD1,DIP_VER_BUILD2
+#define VER_PRODUCTVERSION_STR      DIP_VER_MAJOR_STR "." DIP_VER_MINOR_STR "." DIP_VER_BUILD1_STR "." DIP_VER_BUILD2_STR
+
+#define VER_FILEVERSION             DIP_VER_MAJOR,DIP_VER_MINOR,DIP_VER_BUILD1,DIP_VER_BUILD2
+#define VER_FILEVERSION_STR         DIP_VER_MAJOR_STR "." DIP_VER_MINOR_STR "." DIP_VER_BUILD1_STR "." DIP_VER_BUILD2_STR
+	
+#ifndef VER_FILETYPE
+#define VER_FILETYPE                VFT_APP
+#endif
+
+#ifndef VER_FILESUBTYPE
+#define VER_FILESUBTYPE             VFT_UNKNOWN
+#endif
+
+#ifdef _DEBUG
+#define VER_FILEFLAGS               VS_FF_DEBUG
+#else
+#define VER_FILEFLAGS               0
+#endif
+
+#ifndef VER_OS
+#define VER_OS                      VOS__WINDOWS32
+#endif
+
+// If FILEVERSION/FILEVERSION_STR aren't defined, use PRODUCTVERSION
+//
+#ifndef VER_FILEVERSION
+#define VER_FILEVERSION             VER_PRODUCTVERSION
+#define VER_FILEVERSION_STR         VER_PRODUCTVERSION_STR
+#endif
+
+// ==========================================================================
+
+#include <windows.h>
+// above added by alan previn
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION    VER_FILEVERSION
+PRODUCTVERSION VER_PRODUCTVERSION
+FILEFLAGSMASK  VS_FFI_FILEFLAGSMASK
+FILEFLAGS      VER_FILEFLAGS
+FILEOS         VER_OS
+FILETYPE       VER_FILETYPE
+FILESUBTYPE    VER_FILESUBTYPE
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904E4"
+        BEGIN
+            VALUE "CompanyName",     VER_COMPANYNAME_STR, "Intel Corporation\0"
+            VALUE "FileDescription", VER_FILEDESCRIPTION_STR, "Intel(R) Embedded Audio Driver\0"
+            VALUE "FileVersion",     VER_FILEVERSION_STR, "\0"
+            VALUE "InternalName",    VER_INTERNALNAME_STR, "ICHUAM\0"
+            VALUE "LegalCopyright",  VER_LEGALCOPYRIGHT_STR, "\0"
+            VALUE "OriginalFilename",VER_ORIGINALFILENAME_STR, "ichuam.dll\0"
+            VALUE "ProductName",     VER_PRODUCTNAME_STR, "Intel(R) Embedded Audio Driver for Windows CE\0"
+            VALUE "ProductVersion",  VER_PRODUCTVERSION_STR, "\0"
+        END
+
+    END
+
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x0409, 0x04E4
+    END
+END
+

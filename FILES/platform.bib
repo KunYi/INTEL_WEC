@@ -1,0 +1,230 @@
+;
+; Copyright (c) Microsoft Corporation.  All rights reserved.
+;
+;
+; Use of this sample source code is subject to the terms of the Microsoft
+; license agreement under which you licensed this sample source code. If
+; you did not accept the terms of the license agreement, you are not
+; authorized to use this sample source code. For the terms of the license,
+; please see the license agreement between you and Microsoft or, if applicable,
+; see the LICENSE.RTF on your install media or the root of your tools installation.
+; THE SAMPLE SOURCE CODE IS PROVIDED "AS IS", WITH NO WARRANTIES OR INDEMNITIES.
+;
+; -- Intel Copyright Notice -- 
+;  
+; @par 
+; Copyright (c) 2002-2011 Intel Corporation All Rights Reserved. 
+;  
+; @par 
+; The source code contained or described herein and all documents 
+; related to the source code ("Material") are owned by Intel Corporation 
+; or its suppliers or licensors.  Title to the Material remains with 
+; Intel Corporation or its suppliers and licensors. 
+;  
+; @par 
+; The Material is protected by worldwide copyright and trade secret laws 
+; and treaty provisions. No part of the Material may be used, copied, 
+; reproduced, modified, published, uploaded, posted, transmitted, 
+; distributed, or disclosed in any way except in accordance with the 
+; applicable license agreement . 
+;  
+; @par 
+; No license under any patent, copyright, trade secret or other 
+; intellectual property right is granted to or conferred upon you by 
+; disclosure or delivery of the Materials, either expressly, by 
+; implication, inducement, estoppel, except in accordance with the 
+; applicable license agreement. 
+;  
+; @par 
+; Unless otherwise agreed by Intel in writing, you may not remove or 
+; alter this notice or any other notice embedded in Materials by Intel 
+; or Intel's suppliers or licensors in any way. 
+;  
+; @par 
+; For further details, please see the file README.TXT distributed with 
+; this software. 
+;  
+; @par 
+; -- End Intel Copyright Notice -- 
+;  
+;
+MODULES
+;  Name             Path                                            Memory Type
+;  --------------   ---------------------------------------------   -----------
+
+; @CESYSGEN IF CE_MODULES_DEVICE
+; @XIPREGION IF PACKAGE_OEMDRIVERS
+dma8237_x86_ms_v1.dll $(_FLATRELEASEDIR)\dma8237_x86_ms_v1.dll      NK SHK
+; @XIPREGION ENDIF
+
+; @CESYSGEN IF CE_MODULES_GIISR
+giisr.dll           $(_FLATRELEASEDIR)\GIISR.dll                    NK  SHK
+; @CESYSGEN ENDIF CE_MODULES_GIISR
+
+; @CESYSGEN IF CE_MODULES_SERIAL
+IF BSP_NOSERIAL !
+com16550.dll        $(_FLATRELEASEDIR)\com16550.dll                 NK SHQ
+isr16550.dll        $(_FLATRELEASEDIR)\isr16550.dll                 NK SHK
+ENDIF BSP_NOSERIAL !
+; @CESYSGEN ENDIF CE_MODULES_SERIAL
+
+; @CESYSGEN IF CE_MODULES_PARALLEL
+IF BSP_NOPARALLEL !
+parallel.dll        $(_FLATRELEASEDIR)\parallel.dll                 NK SHK
+ENDIF BSP_NOPARALLEL !
+; @CESYSGEN ENDIF CE_MODULES_PARALLEL
+
+
+; @CESYSGEN IF CE_MODULES_PCI
+IF BSP_NOPCIBUS !
+PCIbus.dll          $(_FLATRELEASEDIR)\PCIbus.dll                   NK SHK
+
+; @CESYSGEN IF CE_MODULES_WAVEAPI
+IF BSP_NOAUDIO !
+IF BSP_WAVEDEV_ICHHDA
+ichhda.dll    $(_FLATRELEASEDIR)\ichhda.dll                         NK SHK
+ENDIF BSP_WAVEDEV_ICHHDA
+IF BSP_WAVEDEV_AUTOHDA
+autohda.dll    $(_FLATRELEASEDIR)\autohda.dll                       NK SHK
+ENDIF BSP_WAVEDEV_AUTOHDA
+ENDIF BSP_NOAUDIO !
+; @CESYSGEN ENDIF CE_MODULES_WAVEAPI
+
+; @CESYSGEN IF CE_MODULES_USBD
+IF BSP_NOUSB !
+IF BSP_USB_UHCI
+uhci.dll            $(_FLATRELEASEDIR)\uhci.dll                     NK SHK
+ENDIF BSP_USB_UHCI
+IF BSP_USB_OHCI
+ ohci2.dll          $(_FLATRELEASEDIR)\ohci2.dll                    NK SHK
+ENDIF BSP_USB_OHCI
+IF BSP_USB_EHCI
+IF IMGEHCICERT
+ ehcicert.dll       $(_FLATRELEASEDIR)\ehcicert.dll                 NK SHK
+ELSE
+ ehci.dll           $(_FLATRELEASEDIR)\ehci.dll                     NK SHK
+ENDIF IMGEHCICERT
+ENDIF BSP_USB_EHCI
+IF BSP_USB_EHCI_ICEG
+ ehci_iceg.dll      $(_FLATRELEASEDIR)\ehci_iceg.dll                NK SHK
+ENDIF
+IF BSP_USB_XHCI
+xhci.dll            $(_FLATRELEASEDIR)\xhci.dll                     NK SHK
+ENDIF BSP_USB_XHCI
+ENDIF BSP_NOUSB !
+; @CESYSGEN ENDIF CE_MODULES_USBD
+
+IF BSP_STORAGE_I82371
+atapi.dll          $(_FLATRELEASEDIR)\atapi.dll                  NK  SHK
+ENDIF BSP_STORAGE_I82371
+
+
+; @CESYSGEN IF CE_MODULES_NDIS
+IF BSP_NOETHER !
+IF BSP_NIC_DC21X4
+ndis_dc21x4.dll     $(_FLATRELEASEDIR)\ndis_dc21x4.dll              NK SHK
+ENDIF BSP_NIC_DC21X4
+ENDIF BSP_NOETHER !
+; @CESYSGEN ENDIF CE_MODULES_NDIS
+
+IF BSP_IOH_I2C
+I2C.dll          $(_FLATRELEASEDIR)\I2C.dll                  NK  SHK
+ENDIF BSP_IOH_I2C
+
+IF BSP_IOH_SPI
+SPI.dll          $(_FLATRELEASEDIR)\SPI.dll                  NK  SHK
+SPIISR.dll       $(_FLATRELEASEDIR)\SPIISR.dll               NK  SHK
+ENDIF BSP_IOH_SPI
+
+IF BSP_IOH_HSUART
+hsuart.dll      $(_FLATRELEASEDIR)\hsuart.dll             NK SHK
+hsuartisr.dll      $(_FLATRELEASEDIR)\hsuartisr.dll       NK SHK
+ENDIF BSP_IOH_HSUART
+
+IF BSP_LPSS_DMA
+lpssdma.dll     $(_FLATRELEASEDIR)\lpssdma.dll             NK SHK
+lpssdmaisr.dll  $(_FLATRELEASEDIR)\lpssdmaisr.dll          NK SHK
+ENDIF BSP_LPSS_DMA
+
+ENDIF BSP_NOPCIBUS !
+; @CESYSGEN ENDIF CE_MODULES_PCI
+
+; @CESYSGEN IF CE_MODULES_BATTDRVR
+IF BSP_NOBATTERY !
+battdrvr.dll        $(_FLATRELEASEDIR)\battdrvr.dll                 NK SHK
+ENDIF BSP_NOBATTERY !
+; @CESYSGEN ENDIF CE_MODULES_BATTDRVR
+
+; @CESYSGEN IF CE_MODULES_NLEDDRVR
+IF BSP_NONLED !
+nleddrvr.dll        $(_FLATRELEASEDIR)\nleddrvr.dll                 NK SHK
+ENDIF BSP_NONLED !
+; @CESYSGEN ENDIF CE_MODULES_NLEDDRVR
+
+; @CESYSGEN IF CE_MODULES_KEYBD
+IF BSP_KEYBD_8042
+kbd8042.dll      $(_FLATRELEASEDIR)\kbd8042.dll                  NK  SHK
+ENDIF BSP_KEYBD_8042
+; @CESYSGEN ENDIF CE_MODULES_KEYBD
+
+IF BSP_IOH_GPIO
+GPIO.dll      $(_FLATRELEASEDIR)\GPIO.dll                  NK  SHK
+ENDIF BSP_IOH_GPIO
+    
+; @CESYSGEN ENDIF CE_MODULES_DEVICE
+
+; @CESYSGEN IF CE_MODULES_DISPLAY
+IF BSP_NODISPLAY !
+IF BSP_DISPLAY_NOP
+ddi.dll             $(_FLATRELEASEDIR)\ddi_nop.dll                  NK SHK
+ENDIF BSP_DISPLAY_NOP
+ENDIF BSP_NODISPLAY !
+; @CESYSGEN ENDIF CE_MODULES_DISPLAY
+
+; @CESYSGEN IF CE_MODULES_SDNPCID
+sdnpcid.dll         $(_FLATRELEASEDIR)\sdnpcid.dll                  NK SHK
+; @CESYSGEN ENDIF CE_MODULES_SDNPCID
+
+; @CESYSGEN IF CE_MODULES_ENUMFASLPCI
+enumfaslpci.dll     $(_FLATRELEASEDIR)\enumfaslpci.dll              NK SHK
+; @CESYSGEN ENDIF CE_MODULES_ENUMFASLPCI
+
+; @CESYSGEN IF CE_MODULES_FASLD
+fasld.dll           $(_FLATRELEASEDIR)\fasld.dll                    NK SHK
+; @CESYSGEN ENDIF CE_MODULES_FASLD
+
+; @CESYSGEN IF CE_MODULES_RAMDISK
+ramdisk.dll         $(_FLATRELEASEDIR)\ramdisk.dll                  NK SHK
+; @CESYSGEN ENDIF CE_MODULES_RAMDISK
+
+; @CESYSGEN IF CE_MODULES_UPDATEAPP
+IF IMGULDR
+uldrui.dll      $(_FLATRELEASEDIR)\uldrui.dll                   NK SHK
+ENDIF IMGULDR
+; @CESYSGEN ENDIF CE_MODULES_UPDATEAPP
+
+;ddi_emgd.dll		 $(_FLATRELEASEDIR)\ddi_emgd.dll           	NK SHK
+;dp.dll				 $(_FLATRELEASEDIR)\dp.dll    	NK SHK
+;analog.dll			 $(_FLATRELEASEDIR)\analog.dll    	NK SHK
+;hdmi.dll		     $(_FLATRELEASEDIR)\hdmi.dll		NK SHK
+
+
+FILES
+;  Name            Path                                           Memory Type
+;  --------------  ---------------------------------------------  -----------
+
+IF BSP_WEA
+IF BSP_NOAUDIO !
+; @CESYSGEN IF AUTOCOMP_MODULES_RESAMPLE
+    filt32_08000_44100_q10_lp03200.dat $(_FLATRELEASEDIR)\filt32_08000_44100_q10_lp03200.dat    NK  SH
+    filt16_08000_44100_q20_lp03600.dat $(_FLATRELEASEDIR)\filt16_08000_44100_q20_lp03600.dat    NK  SH
+    filt16_22050_44100_q40_lp10143.dat $(_FLATRELEASEDIR)\filt16_22050_44100_q40_lp10143.dat    NK  SH
+    filt32_22050_44100_q40_lp10143.dat $(_FLATRELEASEDIR)\filt32_22050_44100_q40_lp10143.dat    NK  SH
+    filt32_44100_08000_q10_lp03200.dat $(_FLATRELEASEDIR)\filt32_44100_08000_q10_lp03200.dat    NK  SH
+    filt16_44100_08000_q20_lp03600.dat $(_FLATRELEASEDIR)\filt16_44100_08000_q20_lp03600.dat    NK  SH
+    filt32_44100_16000_q40_lp07500.dat $(_FLATRELEASEDIR)\filt32_44100_16000_q40_lp07500.dat    NK  SH
+; @CESYSGEN ENDIF AUTOCOMP_MODULES_RESAMPLE
+ENDIF BSP_NOAUDIO !
+ENDIF BSP_WEA
+
+

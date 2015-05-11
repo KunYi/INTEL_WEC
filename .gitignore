@@ -1,0 +1,7 @@
+[bB]uild*.*
+[bB]ldsys.*
+*/obj/
+*/*/obj/
+*/*/*/obj/
+*/*/*/*/obj/
+*/*/*/*/*/obj/

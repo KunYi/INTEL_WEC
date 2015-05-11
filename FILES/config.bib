@@ -1,0 +1,223 @@
+;
+; Copyright (c) Microsoft Corporation.  All rights reserved.
+;
+;
+; Use of this sample source code is subject to the terms of the Microsoft
+; license agreement under which you licensed this sample source code. If
+; you did not accept the terms of the license agreement, you are not
+; authorized to use this sample source code. For the terms of the license,
+; please see the license agreement between you and Microsoft or, if applicable,
+; see the LICENSE.RTF on your install media or the root of your tools installation.
+; THE SAMPLE SOURCE CODE IS PROVIDED "AS IS", WITH NO WARRANTIES OR INDEMNITIES.
+;
+MEMORY
+
+#if (defined IMGPPC || defined IMGTPC)
+    IF IMGPERSISTENTSTORAGE !
+        #error IMGPERSISTENTSTORAGE is a required for building Windows Mobile images.
+    ENDIF IMGPERSISTENTSTORAGE !
+    IF IMGRAMFMD !
+        #error IMGRAMFMD is a required for building Windows Mobile images.
+    ENDIF IMGRAMFMD !
+#endif
+
+DMA       80100000  00030000  RESERVED   ; DMA, see platform.reg for 8237 driver
+BLDR      80130000  00050000  RESERVED   ; bootloader loads here - see bldr.bib
+BLDRRAM1  80180000  0007C000  RESERVED   ; bootloader uses this as RAM - see bldr.bib
+AUDIOBUF  801FC000  00002000  RESERVED   ; Audio DMA buffer for BSP_WAVEDEV_SB16, shared with bootloader RAM
+BLDRRAM2  801FE000  00001000  RESERVED   ; bootloader uses this as RAM - see bldr.bib
+BOOTARGS  801FF000  00001000  RESERVED   ; Boot arguments, see also BOOT_ARG_PTR_LOCATION, BOOT_ARG_LOCATION_NP, BOOT_ARG_PTR_LOCATION_NP, BOOT_ARG_REBOOT_LOCATION
+ETHDMA    80200000  00020000  RESERVED   ; KITL Ethernet, see ETHDMA_BUFFER_BASE
+AMLCODE   80220000  00100000  RESERVED   ; ACPI Interpreter
+
+#if defined IMGRAM16 || defined IMGRAM32 || defined IMGRAM64
+
+    NK       80320000  009E0000  RAMIMAGE
+  
+    #if defined IMGRAM16
+        ; 16 MB of RAM (note: AUTOSIZE will adjust NK/RAM boundary)
+        RAM      80D00000  00400000  RAM
+        nk.exe:dwOEMTotalRAM 0    01000000  FIXUPVAR
+    #elif defined IMGRAM32
+        ; 32 MB of RAM (note: AUTOSIZE will adjust NK/RAM boundary)
+        RAM      80D00000  01400000  RAM
+        nk.exe:dwOEMTotalRAM 0    02000000  FIXUPVAR
+    #elif defined IMGRAM64
+        ; 64 MB of RAM (note: AUTOSIZE will adjust NK/RAM boundary)
+        RAM      80D00000  03400000  RAM
+        nk.exe:dwOEMTotalRAM 0    04000000  FIXUPVAR
+    #endif
+#else ; Assuming there is 128MB or greater RAM
+    IF IMGRAMFMD
+        RAMFMD   80320000  02000000  RESERVED   ; RAMFMD entries, see also platform.reg
+        NK       82320000  009e0000  RAMIMAGE
+    ELSE
+        NK       80320000  029e0000  RAMIMAGE
+    ENDIF
+  
+    #if  defined IMGRAM128
+        ; 128 MB of RAM (note: AUTOSIZE will adjust NK/RAM boundary)
+        RAM      82D00000  05400000  RAM
+        nk.exe:dwOEMTotalRAM 0    08000000  FIXUPVAR
+    #elif defined IMGRAM192
+        ; 192 MB of RAM (note: AUTOSIZE will adjust NK/RAM boundary)
+        RAM      82D00000  09400000  RAM
+        nk.exe:dwOEMTotalRAM 0    0C000000  FIXUPVAR        
+    #elif defined IMGRAM256
+        ; 256 MB of RAM (note: AUTOSIZE will adjust NK/RAM boundary)
+        RAM      82D00000  0D400000  RAM
+        nk.exe:dwOEMTotalRAM 0    10000000  FIXUPVAR
+    #elif defined IMGRAM512
+        ; 512 MB of RAM (note: AUTOSIZE will adjust NK/RAM boundary)
+        RAM      82D00000  1D300000  RAM
+        nk.exe:dwOEMTotalRAM 0    20000000  FIXUPVAR
+    #else
+        ; NK Start+NK length+RAM length is the MINIMUM guaranteed RAM the device WILL have, and MUST be larger than nk.bin
+        ; auto detect RAM at runtime, so passes -1 here for romimage
+        RAM      82D00000  7d2fffff  RAM ; 82D00000 + 7d2fffff = ffffffff
+      
+        ; dwOEMTotalRAM is the MAXIMUM RAM a device MIGHT have
+        ; 512MB allows the BSP and kernel to auto detect values above 512MB
+        nk.exe:dwOEMTotalRAM 0    20000000  FIXUPVAR
+    #endif
+#endif
+
+#if defined BSP_HARDRESET || (! defined IMGRAMFMD && ! defined BSP_SOFTRESET)
+    ; Hard reset the system on a software reboot
+    nk.exe:pdwHardReset        00000000          1       FIXUPVAR
+#else
+IF MAKEIMG_BIN_FORMAT=imageupdate
+    ; Hard reset the system on a software reboot of IU builds
+    nk.exe:pdwHardReset        00000000          1       FIXUPVAR
+ELSE
+    ; Soft reset the system on a software reboot
+    ; CAUTION: all drivers should be unloaded before doing a reset, even then it may still fail
+    nk.exe:pdwHardReset        00000000          0       FIXUPVAR
+ENDIF
+#endif
+
+#if ($(_WINCEOSVER) == 700 && defined IMGMPENABLE)|| ($(_WINCEOSVER) == 800 && ! defined IMGNOSMP)
+    nk.exe:fOalMpEnable        00000000          1       FIXUPVAR
+#else
+    nk.exe:fOalMpEnable        00000000          1       FIXUPVAR
+    nk.exe:fOalNM10Fix         00000000          1       FIXUPVAR
+
+#endif
+           
+; This fix-up variable is a bitfield that can be used to initialize     
+; the OAL debug zones per oal_log.h.  Uncomment the line and
+; change the hexadecimal bits to enable the desired zones.  The
+; default value (0x0000000B) enables the OAL_LOG_ERROR,
+; OAL_LOG_WARN, and OAL_LOG_INFO zones, and will be used by
+; OEMInit if the line remains commented out.
+;
+;  nk.exe:initialOALLogZones     00000000 0x0000000B       FIXUPVAR
+
+; This fix-up variable is a bitfield that can be used to initialize     
+; the Kernel debug zones per kernel.h.  Uncomment the line and
+; change the hexadecimal bits to enable the desired zones.  The
+; default value (0x00000100) enables the ZONE_DEBUG.
+;
+; kernel.dll:initialKernelLogZones 00000000 00000110       FIXUPVAR
+
+; This fix-up variable can be used to initialize the default thread
+; quantum value used by Kernel.  Uncomment the line to set custom
+; thread quantum values.
+; nk.exe:DefaultThreadQuantum     00000000 0x00000064     FIXUPVAR
+
+; This fix-up variable determines the amount of memory the BSP
+; reserves for Watson dump capture.  The current default behavior is
+; to default to zero unless the image has SYSGEN_WATSON_DMPGEN
+; defined.  The default size is 512KiB.
+;
+; @CESYSGEN IF CE_MODULES_OSAXST0
+nk.exe:dwOEMDrWatsonSize  00000000   0x80000               FIXUPVAR
+; @CESYSGEN ENDIF
+
+CONFIG
+   AUTOSIZE=ON
+   ROMOFFSET=80000000
+   KERNELFIXUPS=ON
+
+; @CESYSGEN IF !NK_NKNOCOMP
+   COMPRESSION=ON
+; @CESYSGEN ENDIF !NK_NKNOCOMP
+; @CESYSGEN IF NK_NKNOCOMP
+   COMPRESSION=OFF
+; @CESYSGEN ENDIF NK_NKNOCOMP
+
+IF IMGPROFILER
+   PROFILE=ON
+ELSE
+   PROFILE=OFF
+ENDIF
+
+IF IMGPERSISTENTSTORAGE
+    FSRAMPERCENT=0x00000010
+ENDIF
+
+IF IMGTINYFSRAM
+    FSRAMPERCENT=0x00000080
+ENDIF
+
+IF IMG_SMARTFON_TINYFS
+    FSRAMPERCENT=0x000000ff
+ENDIF
+
+; ROMFLAGS is a bitmask of options for the kernel
+;   ROMFLAGS    0x0001  Disallow Paging
+;   ROMFLAGS    0x0010  Trust Module only
+IF IMGTRUSTROMONLY
+    ROMFLAGS=10
+ELSE
+    ROMFLAGS=0
+ENDIF
+
+; Make an NB0 if ULDR is build
+IF _TGTPROJ=uldr
+    ; make an NB0
+    ROMSTART=80320000
+    
+IF WINCEDEBUG=debug
+    ROMSIZE=00800000
+ENDIF    
+IF WINCEDEBUG=retail
+    ROMSIZE=00400000
+ENDIF 
+IF WINCEDEBUG=checked
+    ROMSIZE=00540000
+ENDIF    
+    
+    ROMWIDTH=32
+ENDIF
+
+; this code verifies that two IMGRAM varibles are not set at the same time
+#if defined IMGRAM16
+    #if defined IMGRAM32 || defined IMGRAM64 || defined IMGRAM128 || defined IMGRAM192 || defined IMGRAM256 || defined IMGRAM512
+        #error Two conflicting IMGRAM settings were found
+    #endif
+#elif defined IMGRAM32
+    #if defined IMGRAM16 || defined IMGRAM64 || defined IMGRAM128 || defined IMGRAM192 || defined IMGRAM256 || defined IMGRAM512
+        #error Two conflicting IMGRAM settings were found
+    #endif
+#elif defined IMGRAM64
+    #if defined IMGRAM16 || defined IMGRAM32 || defined IMGRAM128 || defined IMGRAM192 || defined IMGRAM256 || defined IMGRAM512
+        #error Two conflicting IMGRAM settings were found
+    #endif
+#elif defined IMGRAM128
+    #if defined IMGRAM16 || defined IMGRAM32 || defined IMGRAM64 || defined IMGRAM192 || defined IMGRAM256 || defined IMGRAM512
+        #error Two conflicting IMGRAM settings were found
+    #endif
+#elif defined IMGRAM192
+    #if defined IMGRAM16 || defined IMGRAM32 || defined IMGRAM64 || defined IMGRAM128 || defined IMGRAM256 || defined IMGRAM512
+        #error Two conflicting IMGRAM settings were found
+    #endif
+#elif defined IMGRAM256
+    #if defined IMGRAM16 || defined IMGRAM32 || defined IMGRAM64 || defined IMGRAM128 || defined IMGRAM192 || defined IMGRAM512
+        #error Two conflicting IMGRAM settings were found
+    #endif
+#elif defined IMGRAM512
+    #if defined IMGRAM16 || defined IMGRAM32 || defined IMGRAM64 || defined IMGRAM128 || defined IMGRAM192 || defined IMGRAM256
+        #error Two conflicting IMGRAM settings were found
+    #endif
+#endif 

@@ -1,0 +1,62 @@
+//
+// Copyright (c) Microsoft Corporation.  All rights reserved.
+//
+//
+// Use of this sample source code is subject to the terms of the Microsoft
+// license agreement under which you licensed this sample source code. If
+// you did not accept the terms of the license agreement, you are not
+// authorized to use this sample source code. For the terms of the license,
+// please see the license agreement between you and Microsoft or, if applicable,
+// see the LICENSE.RTF on your install media or the root of your tools installation.
+// THE SAMPLE SOURCE CODE IS PROVIDED "AS IS", WITH NO WARRANTIES OR INDEMNITIES.
+//
+//------------------------------------------------------------------------------
+//
+//  File for localizing platform-specific strings that may be presented to user.
+//
+//------------------------------------------------------------------------------
+
+
+//------------------------------------------------------------------------------
+// [HKEY_LOCAL_MACHINE\Platform]
+#define LOC_PLATFORMNAME        "Microsoft CEPC versión 1.0a"
+
+//------------------------------------------------------------------------------
+// [HKEY_LOCAL_MACHINE\Comm\DP83815]
+#define LOC_DISPLAYNAME_COMM_DP83815    "Controlador Ethernet compatible con DP83815 (MacPhyter)"
+
+//------------------------------------------------------------------------------
+// [HKEY_LOCAL_MACHINE\Comm\NE2000]
+#define LOC_DISPLAYNAME_COMM_NE2000     "Controlador Ethernet compatible con NE2000"
+
+//------------------------------------------------------------------------------
+// [HKEY_LOCAL_MACHINE\Comm\NE20001]
+#define LOC_DISPLAYNAME_COMM_NE20001    "Controlador Ethernet compatible con NE2000"
+
+//------------------------------------------------------------------------------
+// [HKEY_LOCAL_MACHINE\Drivers\BuiltIn\Serial]
+#define LOC_FRIENDLYNAME_SERIAL         "Cable serie en COM1:"
+
+//------------------------------------------------------------------------------
+// [HKEY_LOCAL_MACHINE\Drivers\BuiltIn\Serial1]
+#define LOC_FRIENDLYNAME_SERIAL1        "Cable serie en COM1:"
+
+//------------------------------------------------------------------------------
+// [HKEY_LOCAL_MACHINE\Drivers\BuiltIn\Serial2]
+#define LOC_FRIENDLYNAME_SERIAL2        "Cable serie en COM2:"
+
+//------------------------------------------------------------------------------
+// [HKEY_LOCAL_MACHINE\Drivers\BuiltIn\Serial3]
+#define LOC_FRIENDLYNAME_SERIAL3        "Cable serie en COM3:"
+
+//------------------------------------------------------------------------------
+// [HKEY_LOCAL_MACHINE\Drivers\BuiltIn\Serial4]
+#define LOC_FRIENDLYNAME_SERIAL4        "Cable serie en COM4:"
+
+//------------------------------------------------------------------------------
+// [HKEY_LOCAL_MACHINE\Comm\Irsir]
+#define LOC_FRIENDLYNAME_IRSIR          "Controlador IrDA serie (COM)"
+
+//------------------------------------------------------------------------------
+// [HKEY_LOCAL_MACHINE\Drivers\BuiltIn\Parallel]
+#define LOC_FRIENDLYNAME_PARALLEL       "Cable paralelo en LPT1:"

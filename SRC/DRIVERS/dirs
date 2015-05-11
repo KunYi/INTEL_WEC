@@ -55,5 +55,6 @@ DIRS=\
 	sdcard30\
 	DMA\
 	IEMGD\
+	INIC\
 
 

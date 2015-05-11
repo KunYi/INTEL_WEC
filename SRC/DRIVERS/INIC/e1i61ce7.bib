@@ -1,0 +1,14 @@
+
+;
+; Image configuration for the e1i family driver for Windows Embedded Compact 7. These modules must be
+; included in the master PLATFORM.BIB (or one of the other .BIB
+; source files) in the WinCE image. Note that this BIB specifies that the
+; driver loads in Kernel mode, a capability introduced in WEC7.
+;
+
+MODULES
+; Name            Path                                          Memory Type
+; -------------  ---------------------------------------------  -----------
+  E1i61CE7.dll      $(_FLATRELEASEDIR)\E1i61CE7.dll                NK  SHK
+  E1iCEISR.dll      $(_FLATRELEASEDIR)\E1iCEISR.dll                NK  SHK
+

@@ -1,0 +1,142 @@
+;*********************BEGIN INTEL PLATFORM.REG ADDITIONS************************
+;Create registry information for Intel(R) Miniport Driver
+
+[HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Power\State\Suspend\{98C5250D-C29A-4985-AE5F-AFE5367E5006}]
+    "Default"=dword:4           ; D4
+
+[HKEY_LOCAL_MACHINE\Comm\E1I61CE7]
+   "DisplayName"="Intel(R) Gigabit Ethernet Controller"
+   "Group"="NDIS"
+   "ImagePath"="E1I61CE7.dll"
+
+;Create registry information for template (will be copied to ALL instances of
+;adapters using the Intel Miniport Driver
+
+[HKEY_LOCAL_MACHINE\Drivers\BuiltIn\PCI\Template\E1I61CE7]
+;PCI Bus Enumeration Information
+   "Class"=dword:02
+   "SubClass"=dword:00
+   "ProgIF"=dword:0
+   "VendorID"=multi_sz:"8086","8086","8086","8086","8086","8086","8086","8086","8086","8086","8086","8086","8086","8086","8086","8086","8086","8086","8086","8086"
+   "DeviceID"=multi_sz:"10D3","10A7","150C","1502","10DE","10DF","10EA","10EF","150E","1516","1521","1523","10C9","1539","1533","1536","1537","1538","157B","157C"
+   "Prefix"="NDS"
+   "Dll"="NDIS.dll"
+   "Entry"="NdisPCIBusDeviceInit"
+   "MiniPort"="E1I61CE7"
+  ; Turn on installable ISR to resolve 82574 errata
+   "IsrDll"="E1ICEISR.dll"
+   "IsrHandler"="ISRHandler"
+
+[HKEY_LOCAL_MACHINE\COMM\PCI\E1I61CE71\PARMS]
+;   "debug"=dword:0F400E0F
+   "*FlowControl"=dword:3
+   "*TransmitBuffers"=dword:200
+   "*ReceiveBuffers"=dword:100
+   "*TCPChecksumOffloadIPv4"=dword:3
+   "*UDPChecksumOffloadIPv4"=dword:3
+   "*IPChecksumOffloadIPv4"=dword:3
+   "WaitAutoNegComplete"=dword:2
+   "ITR"=dword:3B6
+   "TcpSegmentation"=dword:0
+   "*SpeedDuplex"=dword:0
+   "AdaptiveIFS"=dword:0
+   "MasterSlave"=dword:0
+   "SPDEnabled"=dword:1
+   "*JumboPacket"=dword:5EA
+   "WakeOn"=dword:0
+   "*IfType"=dword:6                  ; IF_TYPE_ETHERNET_CSMACD
+   "*MediaType"=dword:0               ; NdisMedium802_3
+   "*PhysicalMediaType"=dword:E       ; NdisPhysicalMedium802_3
+
+[HKEY_LOCAL_MACHINE\COMM\PCI\E1I61CE72\PARMS]
+;   "debug"=dword:0F400E0F
+   "*FlowControl"=dword:3
+   "*TransmitBuffers"=dword:200
+   "*ReceiveBuffers"=dword:100
+   "*TCPChecksumOffloadIPv4"=dword:3
+   "*UDPChecksumOffloadIPv4"=dword:3
+   "*IPChecksumOffloadIPv4"=dword:3
+   "WaitAutoNegComplete"=dword:2
+   "ITR"=dword:3B6
+   "TcpSegmentation"=dword:0
+   "*SpeedDuplex"=dword:0
+   "AdaptiveIFS"=dword:0
+   "MasterSlave"=dword:0
+   "SPDEnabled"=dword:1
+   "*JumboPacket"=dword:5EA
+   "WakeOn"=dword:0
+   "*IfType"=dword:6                  ; IF_TYPE_ETHERNET_CSMACD
+   "*MediaType"=dword:0               ; NdisMedium802_3
+   "*PhysicalMediaType"=dword:E       ; NdisPhysicalMedium802_3
+
+[HKEY_LOCAL_MACHINE\COMM\PCI\E1I61CE73\PARMS]
+;   "debug"=dword:0F400E0F
+   "*FlowControl"=dword:3
+   "*TransmitBuffers"=dword:200
+   "*ReceiveBuffers"=dword:100
+   "*TCPChecksumOffloadIPv4"=dword:3
+   "*UDPChecksumOffloadIPv4"=dword:3
+   "*IPChecksumOffloadIPv4"=dword:3
+   "WaitAutoNegComplete"=dword:2
+   "ITR"=dword:3B6
+   "TcpSegmentation"=dword:0
+   "*SpeedDuplex"=dword:0
+   "AdaptiveIFS"=dword:0
+   "MasterSlave"=dword:0
+   "SPDEnabled"=dword:1
+   "*JumboPacket"=dword:5EA
+   "WakeOn"=dword:0
+   "*IfType"=dword:6                  ; IF_TYPE_ETHERNET_CSMACD
+   "*MediaType"=dword:0               ; NdisMedium802_3
+   "*PhysicalMediaType"=dword:E       ; NdisPhysicalMedium802_3
+
+[HKEY_LOCAL_MACHINE\COMM\PCI\E1I61CE74\PARMS]
+;   "debug"=dword:0F400E0F
+   "*FlowControl"=dword:3
+   "*TransmitBuffers"=dword:200
+   "*ReceiveBuffers"=dword:100
+   "*TCPChecksumOffloadIPv4"=dword:3
+   "*UDPChecksumOffloadIPv4"=dword:3
+   "*IPChecksumOffloadIPv4"=dword:3
+   "WaitAutoNegComplete"=dword:2
+   "ITR"=dword:3B6
+   "TcpSegmentation"=dword:0
+   "*SpeedDuplex"=dword:0
+   "AdaptiveIFS"=dword:0
+   "MasterSlave"=dword:0
+   "SPDEnabled"=dword:1
+   "*JumboPacket"=dword:5EA
+   "WakeOn"=dword:0
+   "*IfType"=dword:6                  ; IF_TYPE_ETHERNET_CSMACD
+   "*MediaType"=dword:0               ; NdisMedium802_3
+   "*PhysicalMediaType"=dword:E       ; NdisPhysicalMedium802_3
+
+;Settings for DHCP IP Configuration, if enabled
+IF DHCP
+[HKEY_LOCAL_MACHINE\Drivers\BuiltIn\PCI\Template\E1I61CE7\TCPIP]
+   "EnableDHCP"=dword:1
+   ; This should be MULTI_SZ
+   "DefaultGateway"=""
+   ; Use zero for broadcast address? (or 255.255.255.255)
+   "UseZeroBroadcast"=dword:0
+   ; This should be MULTI_SZ, the IP address list
+   "IpAddress"="0.0.0.0"
+   ; This should be MULTI_SZ, the subnet masks for the above IP addresses
+   "Subnetmask"="0.0.0.0"
+ENDIF ;//DHCP
+
+;Settings for static IP configuration, if enabled
+IF STATIC_IP
+[HKEY_LOCAL_MACHINE\COMM\PCI\E1I61CE71\Parms\TcpIp]
+   "EnableDHCP"=dword:0
+   ; This should be MULTI_SZ
+   "DefaultGateway"="1.2.3.0"
+   ; Use zero for broadcast address? (or 255.255.255.255)
+   "UseZeroBroadcast"=dword:0
+   ; This should be MULTI_SZ, the IP address list
+   "IpAddress"="1.2.3.4"
+   ; This should be MULTI_SZ, the subnet masks for the above IP addresses
+   "Subnetmask"="255.0.0.0"
+ENDIF ;//Static IP
+
+;*********************END INTEL PLATFORM.REG ADDITIONS************************

@@ -53,5 +53,7 @@ DIRS=\
 	USB30\
 	HSUART\
 	sdcard30\
-        DMA\
+	DMA\
+	IEMGD\
+
 

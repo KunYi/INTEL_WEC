@@ -1,0 +1,51 @@
+
+[HKEY_LOCAL_MACHINE\Drivers\BuiltIn\PCI\Template\EMGD]
+	"Dll"="isr_emgd.dll"
+	"Class"=dword:03
+	"SubClass"=dword:00
+	"ProgIF"=dword:00
+
+        "VendorID"=multi_sz: "8086","8086","8086","8086","8086"
+
+        "DeviceID"=multi_sz: "0f31","0412","0406","0416","0426"
+
+        "Prefix"="IGD"
+
+        "IsrDll"="isr_emgd.dll"
+	"IsrHandler"="isr_handler"
+
+
+[HKEY_LOCAL_MACHINE\System\GDI\Drivers]
+        "Display"="ddi_emgd.dll"
+
+
+[HKEY_LOCAL_MACHINE\System\GDI\Drivers]
+        "D3DMOverride"="ddi_emgd.dll"
+
+
+[HKEY_LOCAL_MACHINE\System\D3DM\Drivers]
+
+        "RemoteHook"="ddi_emgd.dll"
+
+[HKEY_LOCAL_MACHINE\System\GDI\DisplayCandidates]
+
+        "Candidate3"="Drivers\\Display\\Intel"
+
+;[HKEY_LOCAL_MACHINE\Drivers\Display\Intel]
+;------------------------------------------------------------------------------
+; This value dictates the configuration to select for Per-Port settings from
+; port specific regsitry. 
+;------------------------------------------------------------------------------
+;    "ConfigId"=dword:1
+;------------------------------------------------------------------------------
+; Provide a list of port drivers to attempt to load upon boot time
+;------------------------------------------------------------------------------
+;   "PortDrivers"="analog dp hdmi"
+
+
+;#include "C:\WINCE700\OSDesigns\OSDesign1\OSDesign1\RelDir\INTEL_CS_x86_Release\emgd_filters.reg"
+
+;[HKEY_LOCAL_MACHINE\System\GDI\Monitors]
+
+	;"Total Monitors"=dword:2
+

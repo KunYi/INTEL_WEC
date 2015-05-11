@@ -94,7 +94,8 @@ set BSP_NOCURSOR=
 
 rem CEPC's commonly have a VESA compatible display 
 rem Note: The drivers will only be included if Display support is included in the image
-set BSP_DISPLAY_FLAT=1
+set BSP_DISPLAY_FLAT=
+SET BSP_IEMGD=1
 
 
 @REM enable DirectDraw and DShow
@@ -114,8 +115,8 @@ set IMGRAM512=
 
 @REM External PCI(e) KITL Ethernet driver.
 @REM Note: By default, standard RTL8139 Ethernet is supported
-set BSP_KITL_POLL_MODE=1
-set BSP_KITL_INTELGBE_E1000=1
+set BSP_KITL_POLL_MODE=
+set BSP_KITL_INTELGBE_E1000=
 
 @REM Enable Serial Debug at OAL with 
 @REM External PCI-e MOSHIP UART Debug Card.  
@@ -135,7 +136,7 @@ set WINCEOEM = 1
 @REM =========================================================
 set BSP_NM10=1
 
-    
+
 
     @REM =================================================
     @REM Set the flags for NM10 with following
@@ -161,14 +162,14 @@ set BSP_NM10=1
 
         @REM NM10 Dev Kit has 16650-compatible Debug COM Port 
         @REM Please make sure the BIOS is setting its IOBase=0x3F8 (IRQ=4) 
-        set BSP_SERIAL1=
-    
+        set BSP_SERIAL1=1
+
         @REM USB Host Controller Settings 
         @REM Note: Currently, Intel Atom Processor with NM10 board works with public WEC7 USB drivers.
         @REM Reminder: To set catalog for USB Host HID (Keyboard+Mouse & Mass Storage) etc. 
-        set BSP_USB_UHCI=1
+        set BSP_USB_UHCI=
         set BSP_USB_EHCI=1
-		set BSP_USB_XHCI=1
+        set BSP_USB_XHCI=1
 
         @REM High Definition Audio
         @REM Note: Set BSP_NOAUDIO to disable audio     
@@ -181,20 +182,20 @@ set BSP_NM10=1
         set USE_ALC262_PORTA=
         @REM PATA (IDE) Host Controller
         set BSP_STORAGE_I82371=1
-        
+
         @REM IOH Driver
         set BSP_IOH_GPIO=1
         set BSP_IOH_I2C=1
-	set BSP_IOH_SPI=1
-	set BSP_IOH_HSUART=1
-        
-  @REM SparkLAN-Ralink RT2870 USB WIFI dongle 
-		@REM Support USB wifi
-		set CEPB_INTELE1E_PCIE=1
-		set STATIC_IP=1
-		set BSP_WNIC_RT2870=1
-@REM Enable DMA for baytrail platform
-		set BSP_LPSS_DMA=1
+        set BSP_IOH_SPI=1
+        set BSP_IOH_HSUART=1
+
+        @REM SparkLAN-Ralink RT2870 USB WIFI dongle
+        @REM Support USB wifi
+        set CEPB_INTELE1E_PCIE=
+        set STATIC_IP=
+        set BSP_WNIC_RT2870=
+        @REM Enable DMA for baytrail platform
+        set BSP_LPSS_DMA=1
 
     :not_NM10
 @REM ==========================================================================================================
@@ -207,8 +208,8 @@ set BSP_NM10=1
 @REM Developer can add new platform supporting here
 @REM ==========================================================================================================
         set BSP_PLATFORM=0
-        
-        
+
+
 @REM ==========================================================================================================
 @REM CUSTOMER SHOULD NOT EDIT THIS PARTS!!!
 @REM It is the beginning of this part.
@@ -224,7 +225,7 @@ set BSP_NM10=1
 		set HASWELL_SD=1
         @REM to be continue
     :not_HASWELL
-    
+
 
 @REM ==========================================================================================================
 @REM CUSTOMER SHOULD NOT EDIT THIS PARTS!!!

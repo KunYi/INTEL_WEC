@@ -203,10 +203,14 @@ uldrui.dll      $(_FLATRELEASEDIR)\uldrui.dll                   NK SHK
 ENDIF IMGULDR
 ; @CESYSGEN ENDIF CE_MODULES_UPDATEAPP
 
-;ddi_emgd.dll		 $(_FLATRELEASEDIR)\ddi_emgd.dll           	NK SHK
-;dp.dll				 $(_FLATRELEASEDIR)\dp.dll    	NK SHK
-;analog.dll			 $(_FLATRELEASEDIR)\analog.dll    	NK SHK
-;hdmi.dll		     $(_FLATRELEASEDIR)\hdmi.dll		NK SHK
+;IEMGD binaray
+IF BSP_IEMGD
+ddi_emgd.dll    $(_FLATRELEASEDIR)\ddi_emgd.dll     NK SHK
+dp.dll          $(_FLATRELEASEDIR)\dp.dll           NK SHK
+analog.dll      $(_FLATRELEASEDIR)\analog.dll       NK SHK
+hdmi.dll        $(_FLATRELEASEDIR)\hdmi.dll         NK SHK
+isr_emgd.dll    $(_FLATRELEASEDIR)\isr_emgd.dll     NK SHK
+ENDIF
 
 
 FILES

@@ -1,0 +1,18 @@
+!if 0
+This sources file builds nothing (well, actually it builds an empty dummylib.lib)
+
+The "WINCETARGETFILES = BinaryCopy" entry causes the BinaryCopy rule in
+makefile.inc to be executed, this is used to copy precompiled DLLs to the
+release directory.
+!endif
+
+!IF "$(BSP_IEMGD)" != "1"
+SKIPBUILD=1
+!ENDIF
+
+WINCETARGETFILES = BinaryCopy
+
+RELEASETYPE = PLATFORM
+TARGETNAME  = DUMMYLIB
+TARGETTYPE  = LIBRARY
+SOURCES     = 

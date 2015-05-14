@@ -1,35 +1,27 @@
 
 [HKEY_LOCAL_MACHINE\Drivers\BuiltIn\PCI\Template\EMGD]
-	"Dll"="isr_emgd.dll"
-	"Class"=dword:03
-	"SubClass"=dword:00
-	"ProgIF"=dword:00
-
-        "VendorID"=multi_sz: "8086","8086","8086","8086","8086"
-
-        "DeviceID"=multi_sz: "0f31","0412","0406","0416","0426"
-
-        "Prefix"="IGD"
-
-        "IsrDll"="isr_emgd.dll"
-	"IsrHandler"="isr_handler"
+    "Dll"="isr_emgd.dll"
+    "Class"=dword:03
+    "SubClass"=dword:00
+    "ProgIF"=dword:00
+    "VendorID"=multi_sz: "8086","8086","8086","8086","8086"
+    "DeviceID"=multi_sz: "0f31","0412","0406","0416","0426"
+    "Prefix"="IGD"
+    "IsrDll"="isr_emgd.dll"
+    "IsrHandler"="isr_handler"
 
 
 [HKEY_LOCAL_MACHINE\System\GDI\Drivers]
-        "Display"="ddi_emgd.dll"
-
+    "Display"="ddi_emgd.dll"
 
 [HKEY_LOCAL_MACHINE\System\GDI\Drivers]
-        "D3DMOverride"="ddi_emgd.dll"
-
+    "D3DMOverride"="ddi_emgd.dll"
 
 [HKEY_LOCAL_MACHINE\System\D3DM\Drivers]
-
-        "RemoteHook"="ddi_emgd.dll"
+    "RemoteHook"="ddi_emgd.dll"
 
 [HKEY_LOCAL_MACHINE\System\GDI\DisplayCandidates]
-
-        "Candidate3"="Drivers\\Display\\Intel"
+    "Candidate3"="Drivers\\Display\\Intel"
 
 ;[HKEY_LOCAL_MACHINE\Drivers\Display\Intel]
 ;------------------------------------------------------------------------------

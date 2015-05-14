@@ -1,15 +1,40 @@
+MODULES
+;  Name            Path                                                        Memory Type
+;  --------------  ----------------------------------------------------------  -----------
+IF BSP_IEMGD
+   ddi_emgd.dll    $(_TARGETPLATROOT)\SRC\DRIVERS\IEMGD\Drivers\ddi_emgd.dll   NK SHK
+   dp.dll          $(_TARGETPLATROOT)\SRC\DRIVERS\IEMGD\Drivers\dp.dll         NK SHK
+   analog.dll      $(_TARGETPLATROOT)\SRC\DRIVERS\IEMGD\Drivers\analog.dll     NK SHK
+   hdmi.dll        $(_TARGETPLATROOT)\SRC\DRIVERS\IEMGD\Drivers\hdmi.dll       NK SHK
+   isr_emgd.dll    $(_TARGETPLATROOT)\SRC\DRIVERS\IEMGD\Drivers\isr_emgd.dll   NK SHK
 
-;IEMGD binaray
-ddi_emgd.dll    $(_FLATRELEASEDIR)\ddi_emgd.dll	    NK SHK
+IF BSP_IEMGD_FILTER
+;
+; DirectShow Filter
+;
+aac_dec_filter.dll      $(_TARGETPLATROOT)\SRC\DRIVERS\IEMGD\Filter\aac_dec_filter.dll      NK SHK
+ac3_dec_filter.dll      $(_TARGETPLATROOT)\SRC\DRIVERS\IEMGD\Filter\ac3_dec_filter.dll      NK SHK
+h264_dec_filter.dll     $(_TARGETPLATROOT)\SRC\DRIVERS\IEMGD\Filter\h264_dec_filter.dll     NK SHK
+mp3_dec_filter.dll      $(_TARGETPLATROOT)\SRC\DRIVERS\IEMGD\Filter\mp3_dec_filter.dll      NK SHK
+mpeg2_dec_filter.dll    $(_TARGETPLATROOT)\SRC\DRIVERS\IEMGD\Filter\mpeg2_dec_filter.dll    NK SHK
+mpeg2_spl_filter.dll    $(_TARGETPLATROOT)\SRC\DRIVERS\IEMGD\Filter\mpeg2_spl_filter.dll    NK SHK
+mpeg4_spl_filter.dll    $(_TARGETPLATROOT)\SRC\DRIVERS\IEMGD\Filter\mpeg4_spl_filter.dll    NK SHK
+vc1_dec_filter.dll      $(_TARGETPLATROOT)\SRC\DRIVERS\IEMGD\Filter\vc1_dec_filter.dll      NK SHK
+vc1_spl_filter.dll      $(_TARGETPLATROOT)\SRC\DRIVERS\IEMGD\Filter\vc1_spl_filter.dll      NK SHK
+ENDIF BSP_IEMGD_FILTER
 
-dp.dll          $(_FLATRELEASEDIR)\dp.dll           NK SHK
+ENDIF BSP_IEMGD
 
-analog.dll      $(_FLATRELEASEDIR)\analog.dll       NK SHK
+FILES
+;  Name            Path                                                        Memory Type
+;  --------------  ----------------------------------------------------------  -----------
 
-hdmi.dll        $(_FLATRELEASEDIR)\hdmi.dll         NK SHK
-
-isr_emgd.dll    $(_FLATRELEASEDIR)\isr_emgd.dll     NK SHK
-libGLESv2.dll   $(_FLATRELEASEDIR)\libGLESv2.dll    NK SHK
-
-libegl.dll      $(_FLATRELEASEDIR)\libegl.dll       NK SHK
-
+IF BSP_IEMGD
+IF BSP_OPGLESV20
+;
+; OPGLES 2.0 library support
+;
+   libGLESv2.dll   $(_TARGETPLATROOT)\SRC\DRIVERS\IEMGD\Drivers\libGLESv2.dll  NK SHK
+   libegl.dll      $(_TARGETPLATROOT)\SRC\DRIVERS\IEMGD\Drivers\libegl.dll     NK SHK
+ENDIF BSP_OPGLESV20
+ENDIF BSP_IEMGD

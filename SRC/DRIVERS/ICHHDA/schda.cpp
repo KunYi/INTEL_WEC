@@ -1491,6 +1491,7 @@ UINT HDA::CheckCodecFG(Codec_desc *pCodec)
         case HDA_CODEC_ALC885:
         case HDA_CODEC_ALC888:
 		case HDA_CODEC_ALC262:
+        case HDA_CODEC_ALC280:
 	        StartNode = GET_START_NODE(subnode);
 	        EndNode = StartNode + GET_TOTAL_NODE_COUNT(subnode);
             break;

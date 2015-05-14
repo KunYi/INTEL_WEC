@@ -77,7 +77,7 @@ goto IsCebase
 
 :IsCebase
     rem CEPC's commonly don't use touch
-    set BSP_NOTOUCH=1
+    REM set BSP_NOTOUCH=1
 
 :CommonSettings
 
@@ -115,8 +115,8 @@ set IMGRAM512=
 
 @REM External PCI(e) KITL Ethernet driver.
 @REM Note: By default, standard RTL8139 Ethernet is supported
-set BSP_KITL_POLL_MODE=
-set BSP_KITL_INTELGBE_E1000=
+set BSP_KITL_POLL_MODE=1
+set BSP_KITL_INTELGBE_E1000=1
 
 @REM Enable Serial Debug at OAL with 
 @REM External PCI-e MOSHIP UART Debug Card.  
@@ -231,5 +231,45 @@ set BSP_NM10=1
 @REM CUSTOMER SHOULD NOT EDIT THIS PARTS!!!
 @REM It is the end of this part.
 @REM ==========================================================================================================
+@ REM for OS image configurations
+set IMGNOKITL=1
+set IMGNODEBUGGER=1
+set IMGMPENABLE=1
 
+@REM for Intel EMGD driver
+set BSP_DISPLAY_FLAT=
+set BSP_IEMGD=1
+set BSP_IEMGD_FILTER=
+set BSP_OPGLESV20=
 
+@REM for IDE HD/CD
+set SYSGEN_ATAPI=1
+set SYSGEN_ATAPI_PCIP_PDC20262=
+set SYSGEN_ATAPI_PCIO_CD=1
+set SYSGEN_ATAPI_PCIO=1
+set BSP_STORAGE_I82371=1
+
+@REM for TOUCH
+set SYSGEN_TOUCH=1
+set SYSGEN_TOUCHGESTURE=1
+set SYSGEN_GESTUREANIMATION=1
+set SYSGEN_PHYSICSENGINE=1
+set BSP_NOTOUCH=
+set BSP_EETI_TOUCH=1
+
+@REM for AUDIO
+set BSP_NOAUDIO=
+set BSP_WAVEDEV_ICHHDA=1
+
+@REM Bluetooth
+set SYSGEN_BTH=1
+set SYSGEN_BTH_BTHUTIL=1
+set SYSGEN_BTH_HID_KEYBOARD=1
+set SYSGEN_BTH_HID_MOUSE=1
+set SYSGEN_BTH_PAN=1
+set SYSGEN_BTH_SETTINGS=1
+
+@REM for Intel ethernet
+set BSP_INIC=1
+set DHCP=1
+set SYSGEN_ETHERNETCPL=1

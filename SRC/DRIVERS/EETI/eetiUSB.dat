@@ -1,0 +1,12 @@
+
+;
+; 
+; .dat not support #include command, so please directly describe in platform.dat
+; #include "$(_TARGETPLATROOT)\SRC\DRIVERS\EETI\eetiUSB.dat"
+; ref. 
+; http://guruce.com/blogpost/filteringdatfiles
+; http://stackoverflow.com/questions/312708/using-include-directives-in-platform-builder-dat-files
+;
+Root:-Directory("TouchApp")
+Directory("\TouchApp"):-File("TouchKit.exe","\Windows\eGalaxTouch.exe")
+Directory("\Windows\Desktop"):-File("TouchKit.lnk", "\Windows\TouchKit.lnk")

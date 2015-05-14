@@ -1,0 +1,19 @@
+
+MODULES
+;  Name            Path                                           Memory Type
+;  --------------  ---------------------------------------------  -----------
+IF BSP_EETI_TOUCH
+USBTouch.dll        $(_TARGETPLATROOT)\SRC\DRIVERS\EETI\CE7_usbtouch.dll	NK	SHK
+; Touch proxy driver
+Touch.dll			$(_TARGETPLATROOT)\SRC\DRIVERS\EETI\CE7_Touchp.dll		NK	SHK
+ENDIF BSP_EETI_TOUCH
+
+FILES
+;  Name            Path                                           Memory Type
+;  --------------  ---------------------------------------------  -----------
+IF BSP_EETI_TOUCH
+eGalaxTouch.exe     $(_TARGETPLATROOT)\SRC\DRIVERS\EETI\eGalaxTouch.exe     NK S
+DrawTest.exe        $(_TARGETPLATROOT)\SRC\DRIVERS\EETI\drawtest.exe        NK S
+Calbration.exe      $(_TARGETPLATROOT)\SRC\DRIVERS\EETI\calbration.exe      NK S
+TouchKit.lnk        $(_TARGETPLATROOT)\SRC\DRIVERS\EETI\TouchKit.txt        NK S
+ENDIF BSP_EETI_TOUCH

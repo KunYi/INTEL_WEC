@@ -7,8 +7,9 @@
 ;
 
 MODULES
-; Name            Path                                          Memory Type
-; -------------  ---------------------------------------------  -----------
-  E1i61CE7.dll      $(_FLATRELEASEDIR)\E1i61CE7.dll                NK  SHK
-  E1iCEISR.dll      $(_FLATRELEASEDIR)\E1iCEISR.dll                NK  SHK
-
+; Name              Path                                                        Memory Type
+; -------------    ----------------------------------------------------------  -----------
+IF BSP_INIC
+  E1i61CE7.dll      $(_TARGETPLATROOT)\SRC\DRIVERS\INIC\Drivers\E1i61CE7.dll    NK  SHK
+  E1iCEISR.dll      $(_TARGETPLATROOT)\SRC\DRIVERS\INIC\Drivers\E1iCEISR.dll    NK  SHK
+ENDIF BSP_INIC

@@ -202,20 +202,19 @@ IF IMGULDR
 uldrui.dll      $(_FLATRELEASEDIR)\uldrui.dll                   NK SHK
 ENDIF IMGULDR
 ; @CESYSGEN ENDIF CE_MODULES_UPDATEAPP
+;
+; Intel EMGD
+;
+#include "$(_TARGETPLATROOT)\SRC\DRIVERS\IEMGD\emgd.bib"
+;
+; Intel ethernet
+;
+#include "$(_TARGETPLATROOT)\SRC\DRIVERS\INIC\e1i61ce7.bib"
+;
+; EETI Touch driver
+;
+#include "$(_TARGETPLATROOT)\SRC\DRIVERS\EETI\eetiUSB.bib"
 
-;IEMGD binaray
-IF BSP_IEMGD
-ddi_emgd.dll    $(_FLATRELEASEDIR)\ddi_emgd.dll     NK SHK
-dp.dll          $(_FLATRELEASEDIR)\dp.dll           NK SHK
-analog.dll      $(_FLATRELEASEDIR)\analog.dll       NK SHK
-hdmi.dll        $(_FLATRELEASEDIR)\hdmi.dll         NK SHK
-isr_emgd.dll    $(_FLATRELEASEDIR)\isr_emgd.dll     NK SHK
-ENDIF
-
-IF BSP_INIC
-E1i61CE7.dll    $(_FLATRELEASEDIR)\E1i61CE7.dll     NK  SHK
-E1iCEISR.dll    $(_FLATRELEASEDIR)\E1iCEISR.dll     NK  SHK
-ENDIF
 
 FILES
 ;  Name            Path                                           Memory Type

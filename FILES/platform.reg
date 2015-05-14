@@ -569,8 +569,10 @@ IF BSP_DISPLAY_RAGEXL
 #include "$(DRIVERS_DIR)\display\ragexl\ragexl.reg"
 ENDIF BSP_DISPLAY_RAGEXL
 
+IF BSP_IEMGD
 ; include the path to the emgd.reg file in the release package
 #include "$(PLATFORM_DRIVERS_DIR)\IEMGD\emgd.reg"
+ENDIF BSP_IEMGD
 
 ENDIF BSP_NODISPLAY !
 ; @XIPREGION ENDIF PACKAGE_OEMDRIVERS
@@ -915,6 +917,15 @@ IF BSP_NOTOUCH
 ELSE
     "InputConfig"=dword:3   ; 3 => keybd and touch screen
 ENDIF BSP_NOTOUCH
+
+IF BSP_EETI_TOUCH
+;===============================================================================
+;
+; EETI Touch driver
+;
+#include "$(_TARGETPLATROOT)\SRC\DRIVERS\EETI\eetiTool.reg"
+#include "$(_TARGETPLATROOT)\SRC\DRIVERS\EETI\eetiUSB.reg"
+ENDIF
 ; @XIPREGION ENDIF PACKAGE_OEMDRIVERS
 ; @CESYSGEN ENDIF CE_MODULES_POINTER || CE_MODULES_KEYBD
 ;-------------------------------------------------------------------------------

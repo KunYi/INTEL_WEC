@@ -10,3 +10,8 @@
 ; see the LICENSE.RTF on your install media or the root of your tools installation.
 ; THE SAMPLE SOURCE CODE IS PROVIDED "AS IS", WITH NO WARRANTIES OR INDEMNITIES.
 ;
+IF BSP_EETI_TOUCH
+Root:-Directory("TouchApp")
+Directory("\TouchApp"):-File("TouchKit.exe","\Windows\eGalaxTouch.exe")
+Directory("\Windows\Desktop"):-File("TouchKit.lnk", "\Windows\TouchKit.lnk")
+ENDIF BSP_EETI_TOUCH

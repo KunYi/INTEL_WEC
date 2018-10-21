@@ -38,32 +38,9 @@
 #include <Csync.h>
 #include <CMthread.h>
 
-#define MIN_WORK_ITEM 0x10
+#define MIN_WORK_ITEM 0x20
 
-class LockObject
-{
-private:
-    CRITICAL_SECTION    m_CSection;
-public:
-    LockObject()
-    {
-        InitializeCriticalSection( &m_CSection );
-    };
-    virtual ~LockObject()
-    {
-        DeleteCriticalSection( &m_CSection );
-    };
-    void Lock( void )
-    {
-        EnterCriticalSection( &m_CSection );
-    };
-    void Unlock( void )
-    {
-        LeaveCriticalSection( &m_CSection );
-    };
-};
-
-class CSDWorkItem : public LockObject, public CMiniThread{
+class CSDWorkItem : public CLockObject, public CMiniThread{
 public:
     // post a message to the message queue
     BOOL PostEvent(SD_SLOT_EVENT sdEvent, DWORD dwWaitTick = INFINITE );
@@ -72,6 +49,8 @@ public:
     // destructor
     virtual ~CSDWorkItem();
     BOOL Init(DWORD dwCeThreadPriority);
+    BOOL CSDWorkItem::ReStart();
+    BOOL CSDWorkItem::Stop();
     inline DWORD    IncIndex(DWORD dwIndex) {
         return (dwIndex < m_dwMaxOfSlotEvent-1? dwIndex+1: 0 );
     }
@@ -93,6 +72,9 @@ private:
     virtual VOID    SlotStatusChangeProcessing(SD_SLOT_EVENT sdEvent) = 0; 
     CSDWorkItem(const CSDWorkItem&);
     CSDWorkItem& operator=(CSDWorkItem&);
+    DWORD m_dwCeThreadPriority;
+    BOOL m_bSuspended;
+    BOOL m_bInitialized;
 };
 
 

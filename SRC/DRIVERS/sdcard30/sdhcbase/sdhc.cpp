@@ -46,6 +46,9 @@ const LPCTSTR CSDHCBase::sc_rgpszOptions[SDHCDSlotOptionCount] = {
     MAKE_OPTION_STRING(SDHCDSetSlotInterfaceEx),
     MAKE_OPTION_STRING(SDHCAllocateDMABuffer),
     MAKE_OPTION_STRING(SDHCFreeDMABuffer),
+#if (CE_MAJOR_VER < 8)
+    MAKE_OPTION_STRING(SDHCDPowerControlHandler),
+#endif
 };
 #endif
 
@@ -464,6 +467,8 @@ CSDHCBase::PowerUp(
             // Move controller to higher power state initially since
             // it will need to be powered for the slot to access
             // registers.
+            DeinitializeHardware();
+            InitializeHardware();
             SetControllerPowerState(cpsRequired);
         }
 
@@ -696,7 +701,7 @@ DWORD
 CSDHCBase::IST()
 {
 #ifdef DEBUG
-    const DWORD dwTimeout = 2000;
+    const DWORD dwTimeout = INFINITE; //Change from 2000 to Infinite
 #else
     const DWORD dwTimeout = INFINITE;
 #endif

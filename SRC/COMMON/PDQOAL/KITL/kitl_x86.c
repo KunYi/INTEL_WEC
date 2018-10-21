@@ -50,7 +50,7 @@
 #include <windows.h>
 #include <oal.h>
 #include <x86boot.h>
-#include <pc.h>
+#include <pc_smp.h>
 #include <x86kitl.h>
 #include <halether.h>
 

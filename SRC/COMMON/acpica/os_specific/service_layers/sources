@@ -1,0 +1,32 @@
+TARGETNAME=acpica_os_wince
+RELEASETYPE=PLATFORM
+TARGETTYPE=LIBRARY
+WINCEOEM=1
+
+#pragma warning(disable:4273)   /* warning C4273: 'GetTickCount' : inconsistent dll linkage */
+#                               /* warning C4273: 'Sleep' : inconsistent dll linkage */
+#                               /* warning C4273: 'IsBadReadPtr' : inconsistent dll linkage */
+#                               /* warning C4273: 'IsBadWritePtr' : inconsistent dll linkage */
+WARNISERROR=0
+
+# Mind the order! We include first our include directories, than the others
+INCLUDES=..\..\include; \
+    $(INCLUDES); \
+   
+# define the VARS listed in acenv.h
+# use ACPI_APPLICATION iso ACPI_USE_SYSTEM_CLIBRARY (it includes more)
+CDEFINES=$(CDEFINES) -DACPI_LIBRARY -DACPI_APPLICATION -DACPI_SINGLE_THREADED -DACPI_DEBUG_OUTPUT -DACPI_DISASSEMBLER -DACPI_DEBUGGER
+
+SOURCES= \
+    oswincexf.c \
+    oswincextr.c \
+    osprintf.c \
+    osmalloc.c \
+    tools.c \
+    common.c \
+    components.c \
+    acpica_itf.c \
+
+
+
+    

@@ -26,7 +26,7 @@ Notes:
 --*/
 
 #include <windows.h>
-#include "../../INC/types.h"
+#include <types.h>
 
 #include <sdhcd.h>
 

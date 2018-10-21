@@ -74,7 +74,7 @@ Notes:
 //
 
 #include <windows.h>
-#include "../../INC/types.h"
+#include <types.h>
 #include <safeint.hxx>
 
 #include <sdhcd.h>
@@ -565,10 +565,11 @@ SD_API_STATUS CSDDevice::GetCardStatus(SD_CARD_STATUS   *pCardStatus)
         return status;
     }
 
+//    SDGetCardStatusFromResponse(&cardResponse, pCardStatus);
     INT RetVal = 0;
     RetVal = memcpy_s(pCardStatus, sizeof(SD_CARD_STATUS), &cardResponse.ResponseBuffer[1], sizeof(SD_CARD_STATUS));
     ASSERT(RetVal == 0);
-    
+
     DEBUGMSG(SDCARD_ZONE_INFO, (TEXT("Status: 0x%08X, current state: %d \r\n"),
         *pCardStatus, SD_STATUS_CURRENT_STATE(*pCardStatus)));
 
@@ -1121,7 +1122,7 @@ SD_API_STATUS CSDDevice::InfoQueryRCA(PVOID pCardInfo, ULONG cbCardInfo)
     PREFAST_DEBUGCHK(pCardInfo);
     DEBUGCHK(cbCardInfo == sizeof(SD_CARD_RCA));
     UNREFERENCED_PARAMETER(cbCardInfo);
-    
+
     INT RetVal = 0;
     RetVal = memcpy_s(pCardInfo, cbCardInfo, &m_RelativeAddress, sizeof(SD_CARD_RCA));
     ASSERT(RetVal == 0);

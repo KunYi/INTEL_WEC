@@ -51,7 +51,6 @@
 
 @if "%_ECHOON%" == ""   echo off
 
-
 if /i "%_TGTCPU%"== "x86" goto ValidCPU
     echo.
     echo.
@@ -74,10 +73,9 @@ if /i "%_TGTPROJ%" == "uldr" set _TGTPROJ=uldr
 if /i "%_TGTPROJ%" == "cebase" set _TGTPROJ=cebase
 goto IsCebase
 
-
 :IsCebase
     rem CEPC's commonly don't use touch
-    REM set BSP_NOTOUCH=1
+    set BSP_NOTOUCH=1
 
 :CommonSettings
 
@@ -91,12 +89,9 @@ set IMGSOFTRTC=1
 rem CEPC's commonly use a cursor
 set BSP_NOCURSOR=
 
-
 rem CEPC's commonly have a VESA compatible display 
 rem Note: The drivers will only be included if Display support is included in the image
 set BSP_DISPLAY_FLAT=
-SET BSP_IEMGD=1
-
 
 @REM enable DirectDraw and DShow
 rem set SYSGEN_DDRAW=1
@@ -129,15 +124,12 @@ set BSP_OAL_SERIALDEBUG_MOSCHIP=
 @REM
 set BSP_WEA=
 
-set WINCEOEM = 1
+set WINCEOEM=1
 
 @REM =========================================================
 @REM Supported Platform Selection 
 @REM =========================================================
 set BSP_NM10=1
-
-
-
     @REM =================================================
     @REM Set the flags for NM10 with following
     @REM hardware configurations:-
@@ -162,14 +154,13 @@ set BSP_NM10=1
 
         @REM NM10 Dev Kit has 16650-compatible Debug COM Port 
         @REM Please make sure the BIOS is setting its IOBase=0x3F8 (IRQ=4) 
-        set BSP_SERIAL1=1
+        set BSP_SERIAL1=
 
         @REM USB Host Controller Settings 
         @REM Note: Currently, Intel Atom Processor with NM10 board works with public WEC7 USB drivers.
         @REM Reminder: To set catalog for USB Host HID (Keyboard+Mouse & Mass Storage) etc. 
-        set BSP_USB_UHCI=
+        set BSP_USB_UHCI=1
         set BSP_USB_EHCI=1
-        set BSP_USB_XHCI=1
 
         @REM High Definition Audio
         @REM Note: Set BSP_NOAUDIO to disable audio     
@@ -185,17 +176,6 @@ set BSP_NM10=1
 
         @REM IOH Driver
         set BSP_IOH_GPIO=1
-        set BSP_IOH_I2C=1
-        set BSP_IOH_SPI=1
-        set BSP_IOH_HSUART=1
-
-        @REM SparkLAN-Ralink RT2870 USB WIFI dongle
-        @REM Support USB wifi
-        set CEPB_INTELE1E_PCIE=
-        set STATIC_IP=
-        set BSP_WNIC_RT2870=
-        @REM Enable DMA for baytrail platform
-        set BSP_LPSS_DMA=1
 
     :not_NM10
 @REM ==========================================================================================================
@@ -204,11 +184,11 @@ set BSP_NM10=1
 @REM Multy Platform Settings, customers can set this global variables to decide what platform shall be compiled
 @REM Set BSP_PLATFORM=0 means BAYTRAIL platform
 @REM Set BSP_PLATFORM=1 means HSWWELL platform
+@REM Set BSP_PLATFORM=2 means BROADWELL platform
 @REM It is the BSP level or top level of the settings of platforms
 @REM Developer can add new platform supporting here
 @REM ==========================================================================================================
         set BSP_PLATFORM=0
-
 
 @REM ==========================================================================================================
 @REM CUSTOMER SHOULD NOT EDIT THIS PARTS!!!
@@ -217,28 +197,47 @@ set BSP_NM10=1
 @REM ==========================================================================================================
     if not "%BSP_PLATFORM%"=="0" goto :not_BAYTRAIL
         set BAYTRAIL_GPIO=1
+        set BSP_APIC=1
+        set BSP_ACPICA=1
+        set BSP_USB_XHCI=1
+        set BSP_IOH_SPI=1
+        set BSP_IOH_HSUART=1
+        set BSP_IOH_I2C=1
+        @REM SparkLAN-Ralink RT2870 USB WIFI dongle
+        @REM Support USB wifi
+        set CEPB_INTELE1E_PCIE=1
+        set STATIC_IP=
+        set BSP_WNIC_RT2870=
+    @REM Enable DMA for baytrail platform
+        set BSP_LPSS_DMA=1
         @REM to be continue
     :not_BAYTRAIL 
     if not "%BSP_PLATFORM%"=="1" goto :not_HASWELL
         set HASWELL_GPIO=1
-        set USE_ALC262_PORTA=1
-		set HASWELL_SD=1
-        @REM to be continue
-    :not_HASWELL
+        set USE_ALC262_PORTA=
+        set BSP_APIC=1
+        set BSP_ACPICA=1
 
+    @REM to be continue
+    :not_HASWELL
+    if not "%BSP_PLATFORM%"=="2" goto :not_BROADWELL
+        set BROADWELL_GPIO=1
+    @REM to be continue
+    :not_BROADWELL
 
 @REM ==========================================================================================================
 @REM CUSTOMER SHOULD NOT EDIT THIS PARTS!!!
 @REM It is the end of this part.
 @REM ==========================================================================================================
+
 @ REM for OS image configurations
 set IMGNOKITL=1
 set IMGNODEBUGGER=1
 set IMGMPENABLE=1
 
 @REM for Intel EMGD driver
-set BSP_DISPLAY_FLAT=
-set BSP_IEMGD=1
+set BSP_DISPLAY_FLAT=1
+set BSP_IEMGD=
 set BSP_IEMGD_FILTER=
 set BSP_OPGLESV20=
 
@@ -250,26 +249,27 @@ set SYSGEN_ATAPI_PCIO=1
 set BSP_STORAGE_I82371=1
 
 @REM for TOUCH
-set SYSGEN_TOUCH=1
-set SYSGEN_TOUCHGESTURE=1
-set SYSGEN_GESTUREANIMATION=1
-set SYSGEN_PHYSICSENGINE=1
-set BSP_NOTOUCH=
-set BSP_EETI_TOUCH=1
+set BSP_NOTOUCH=1
+set SYSGEN_TOUCH=
+set SYSGEN_TOUCHGESTURE=
+set SYSGEN_GESTUREANIMATION=
+set SYSGEN_PHYSICSENGINE=
+set BSP_EETI_TOUCH=
 
 @REM for AUDIO
 set BSP_NOAUDIO=
 set BSP_WAVEDEV_ICHHDA=1
 
 @REM Bluetooth
-set SYSGEN_BTH=1
-set SYSGEN_BTH_BTHUTIL=1
-set SYSGEN_BTH_HID_KEYBOARD=1
-set SYSGEN_BTH_HID_MOUSE=1
-set SYSGEN_BTH_PAN=1
-set SYSGEN_BTH_SETTINGS=1
+set SYSGEN_BTH=
+set SYSGEN_BTH_BTHUTIL=
+set SYSGEN_BTH_HID_KEYBOARD=
+set SYSGEN_BTH_HID_MOUSE=
+set SYSGEN_BTH_PAN=
+set SYSGEN_BTH_SETTINGS=
 
 @REM for Intel ethernet
 set BSP_INIC=1
 set DHCP=1
 set SYSGEN_ETHERNETCPL=1
+

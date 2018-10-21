@@ -52,6 +52,10 @@ this software.
 TARGETNAME=oal_io_atom
 TARGETTYPE=LIBRARY
 
+!IF "$(BSP_APIC)" == "1"
+CDEFINES=$(CDEFINES) -DAPIC
+!ENDIF
+
 INCLUDES=\
     $(_WINCEROOT)\platform\common\src\x86\inc;\
     $(_WINCEROOT)\platform\common\src\soc\x86_ms_v1\inc; \

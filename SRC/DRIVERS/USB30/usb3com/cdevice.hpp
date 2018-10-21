@@ -138,6 +138,7 @@ typedef enum
     DEVICE_CONFIG_STATUS_SCHEDULING_GET_INITIAL_HUB_DESCRIPTOR,
     DEVICE_CONFIG_STATUS_SCHEDULING_GET_HUB_DESCRIPTOR,
     DEVICE_CONFIG_STATUS_CREATE_NEW_HUB,
+    DEVICE_CONFIG_STATUS_SET_HUB_DEPTH,
     // } else {
     DEVICE_CONFIG_STATUS_CREATE_NEW_FUNCTION,
     // }
@@ -158,8 +159,10 @@ __declspec(selectany) extern const TCHAR *cszCfgStateStrings[] =
     TEXT("DEVICE_CONFIG_STATUS_OPENING_ENDPOINT0_PIPE"),
     TEXT("DEVICE_CONFIG_RESET_AND_ENABLEPORT_FOR_SPEEDINFO"),
     TEXT("DEVICE_CONFIG_STATUS_RESET_AND_ENABLE_PORT"),
+    TEXT("DEVICE_CONFIG_STATUS_SCHEDULING_ENABLE_SLOT"),
+    TEXT("DEVICE_CONFIG_STATUS_SCHEDULING_RESET_DEVICE"),
+    TEXT("DEVICE_CONFIG_STATUS_SCHEDULING_ADDRESS_DEVICE"),
     TEXT("DEVICE_CONFIG_STATUS_SCHEDULING_GET_DEVICE_DESCRIPTOR_TEST"),
-    TEXT("DEVICE_CONFIG_STATUS_SCHEDULING_SET_ADDRESS"),
     TEXT("DEVICE_CONFIG_STATUS_SCHEDULING_GET_INITIAL_DEVICE_DESCRIPTOR"),
     TEXT("DEVICE_CONFIG_STATUS_SCHEDULING_GET_DEVICE_DESCRIPTOR"),
     TEXT("DEVICE_CONFIG_STATUS_SETUP_CONFIGURATION_DESCRIPTOR_ARRAY"),
@@ -173,6 +176,7 @@ __declspec(selectany) extern const TCHAR *cszCfgStateStrings[] =
     TEXT("DEVICE_CONFIG_STATUS_SCHEDULING_GET_INITIAL_HUB_DESCRIPTOR"),
     TEXT("DEVICE_CONFIG_STATUS_SCHEDULING_GET_HUB_DESCRIPTOR"),
     TEXT("DEVICE_CONFIG_STATUS_CREATE_NEW_HUB"),
+    TEXT("DEVICE_CONFIG_STATUS_SET_HUB_DEPTH"),
     // } else {
     TEXT("DEVICE_CONFIG_STATUS_CREATE_NEW_FUNCTION"),
     // }
@@ -201,6 +205,7 @@ class CDevice;
 class CFunction;
 class CHub;
 class CRootHub;
+class CExternalHub;
 
 //
 // CDeviceGlobal description
@@ -421,7 +426,9 @@ public:
     virtual ~CHub();
 
     VOID HandleDetach(VOID);
-
+    UCHAR         m_uRootHubPort;
+    UINT          m_uHubRoute;
+    BOOL          m_DeviceProtocol;
     HCD_REQUEST_STATUS OpenPipe(IN const UINT uAddress,
                                 IN LPCUSB_ENDPOINT_DESCRIPTOR const lpEndpointDescriptor,
                                 OUT LPUINT const lpPipeIndex,
@@ -495,9 +502,9 @@ protected:
 
     BOOL ResetDevice(IN const UCHAR bAddress);
 
-    BOOL AddressDevice(IN UCHAR bSlotId, UINT uPortId, IN UCHAR bSpeed);
+    BOOL AddressDevice(IN UCHAR bSlotId, UINT uPortId, IN UCHAR bSpeed, UCHAR bRootHubPort, UCHAR bHubSID, UINT uDevRoute);
 
-    BOOL DoConfigureEndpoint(UCHAR bSlotId);
+    BOOL DoConfigureEndpoint(UCHAR bSlotId, USB_DEVICE_DESCRIPTOR* pDevDesc, USB_HUB_DESCRIPTOR* pHubDesc);
 
     BOOL AddEndpoints(UCHAR bSlotId, USB_DEVICE_INFO* deviceInfo);
 
@@ -518,6 +525,7 @@ protected:
 
     virtual BOOL GetStatus(IN const UCHAR bPort,
                             OUT USB_HUB_AND_PORT_STATUS& rStatus) = 0;
+    virtual UCHAR  GetDeviceSpeed(IN USB_HUB_AND_PORT_STATUS& rStatus ) = 0;
 
     virtual BOOL ResetAndEnablePort(IN const UCHAR bPort) = 0;
 
@@ -570,6 +578,7 @@ private:
     virtual BOOL SetOrClearRemoteWakup(BOOL fSet);
 
     BOOL GetStatus(IN const UCHAR bPort, OUT USB_HUB_AND_PORT_STATUS& rStatus);
+    UCHAR GetDeviceSpeed(IN USB_HUB_AND_PORT_STATUS& rStatus );
 
 #ifdef DEBUG
     const TCHAR* GetDeviceType(VOID) const
@@ -590,6 +599,67 @@ private:
 
     CRootHub&operator=(CRootHub&);
 };
+
+class CExternalHub : public CHub
+{
+public:
+    // ****************************************************
+    // Public Functions for CExternalHub
+    // ****************************************************
+    CExternalHub( IN const UCHAR address,
+                  IN const USB_DEVICE_INFO& rDeviceInfo,
+                  IN const UCHAR bSpeed,
+                  IN const UCHAR tierNumber,
+                  IN const USB_HUB_DESCRIPTOR& rUsbHubDescriptor,
+                  IN CHcd * const pCHcd,
+                  IN CHub * const pAttachedHub,const UCHAR uAttachedPort);
+
+    ~CExternalHub();
+
+    DWORD EnterOperationalState( IN CPipeAbs* const pEndpoint0Pipe );
+    BOOL         m_uHubSuperSpeed;
+    // ****************************************************
+    // Public Variables for CExternalHub
+    // ****************************************************
+
+private:
+#ifdef DEBUG
+    const TCHAR* GetDeviceType( void ) const
+    {
+        static const TCHAR* cszDeviceType = TEXT("External");
+        return cszDeviceType;
+    }
+#endif // DEBUG
+
+    BOOL  PowerAllHubPorts( void );
+
+    BOOL  GetStatusChangeBitmap( OUT DWORD& rdwHubBitmap );
+
+    BOOL  WaitForPortStatusChange( OUT UCHAR& rPort,
+                                   OUT USB_HUB_AND_PORT_STATUS& rStatus );
+
+    BOOL  ResetAndEnablePort( IN const UCHAR port );
+
+    void  DisablePort( IN const UCHAR port );
+
+    BOOL  SetOrClearFeature( IN const WORD port,
+                             IN const UCHAR setOrClearFeature,
+                             IN const USHORT feature );
+
+    virtual BOOL  SetOrClearRemoteWakup(BOOL bSet);
+
+    BOOL  GetStatus( IN const UCHAR port,
+                     OUT USB_HUB_AND_PORT_STATUS& rStatus );
+    UCHAR  GetDeviceSpeed(IN USB_HUB_AND_PORT_STATUS& rStatus );
+
+    CExternalHub&operator=(CExternalHub&){ASSERT(FALSE);}
+
+    // ****************************************************
+    // Private Variables for CExternalHub
+    // ****************************************************
+
+};
+
 
 // class for USB functions(i.e. mice, keyboards, etc)
 class CFunction : public CDevice

@@ -307,7 +307,7 @@ private:
         return m_dwTickCountStartTime;
     };
 
-    INT AddressDevice(UCHAR bSlotId, UINT uPortId, UCHAR bSpeed);
+    INT AddressDevice(UCHAR bSlotId, UINT uPortId, UCHAR bSpeed, UCHAR bRootHubPort, UCHAR bHubSID, UINT uDevRoute);
     UINT WaitForCompletion(COMPLETION* pComplete, UINT uTimeout) const;
 
     VOID InitListHead(PLIST_HEAD ptr) const;
@@ -335,8 +335,9 @@ public:
                                 TRB *pTrb,
                                 UINT64 u64EventDma) const;
 
+    INT ChangeMaxPacketSize(UCHAR bSlotId, UINT bMaxPktSize);
     BOOL AddEndpoint(UCHAR bSlotId, USB_ENDPOINT_DESCRIPTOR* peptDescr) const;
-    BOOL DoConfigureEndpoint(UCHAR bSlotId) const;
+    BOOL DoConfigureEndpoint(UCHAR bSlotId, USB_DEVICE_DESCRIPTOR* pDevDesc, USB_HUB_DESCRIPTOR* pHubDesc) const;
     BOOL FreeLogicalDevice(UCHAR bSlotId) const;
     BOOL ResetEndpoint(UCHAR bSlotId, UINT uEpAddress, UCHAR bEndpointType) const;
     BOOL DropEndpoint(UCHAR bSlotId, UINT uEpAddress) const;

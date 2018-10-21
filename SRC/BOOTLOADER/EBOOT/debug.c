@@ -29,7 +29,7 @@ Notes:
 
 #include <windows.h>
 #include <nkintr.h>
-#include <pc.h>
+#include <pc_smp.h>
 #include <wdm.h>
 #include <blcommon.h>
 #include <bootarg.h>

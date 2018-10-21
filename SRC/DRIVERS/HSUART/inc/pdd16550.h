@@ -56,9 +56,10 @@ public:
 	virtual void    Write_PRV_CLK(ULONG uData) { WRITE_REGISTER_ULONG( m_pCLK, uData );};
     virtual ULONG   Read_PRV_CLK() { return READ_REGISTER_ULONG(m_pCLK); };
 
-
+    virtual void	Write_GenConfig(UINT8 uData) {WRITE_REGISTER_UCHAR( m_pGeneral, uData );};
+    virtual UINT8	Read_GenConfig() { return READ_REGISTER_UCHAR(m_pGeneral); };
     virtual BOOL    Write_BaudRate(UINT16 uData);
-	virtual BOOL    SetAutoFlowCtl(BOOL bEnable);
+    virtual BOOL    SetAutoFlowCtl(BOOL bEnable);
 
     virtual void    Backup();
     virtual void    Restore();
@@ -85,6 +86,7 @@ protected:
     BYTE    m_FCR; 
     BYTE    m_IERWrite;
     BYTE    m_IERRead;
+    PBYTE	m_pGeneral;
 
 private:
     BYTE    m_IERBackup;
@@ -239,7 +241,8 @@ protected:
 
 };
 // Constants
-#define IER_NORMAL_INTS (SERIAL_IER_RDA | SERIAL_IER_RLS | SERIAL_IER_MS)
+//#define IER_NORMAL_INTS (SERIAL_IER_RDA | SERIAL_IER_RLS | SERIAL_IER_MS)
+#define IER_NORMAL_INTS (SERIAL_IER_RDA | SERIAL_IER_RLS)  //disable modem status interrupt
 //
 // Private space bits
 //
@@ -260,6 +263,7 @@ protected:
 #define PRV_CLOCKS_SOURCE_DEFAULT       1843200
 #define PRV_CLOCKS_SOURCE_HS_DEFAULT    58978800
 
-#define SERIAL_MCR_AFCE 0x22
+#define SERIAL_MCR_AFCE 0x20
+#define GENERAL_SERIAL_MANUAL_RTS  0x8
 
 #endif

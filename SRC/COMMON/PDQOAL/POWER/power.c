@@ -54,7 +54,7 @@
 #include <windows.h>
 #include <nkintr.h>
 #include <oalintr.h>
-#include "pc.h"
+#include "pc_smp.h"
 #include <oal.h>
 #include <pci.h>
 #include "ioctl_atom.h"

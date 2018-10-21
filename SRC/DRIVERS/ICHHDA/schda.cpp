@@ -52,6 +52,13 @@ HDA::HDA(void)
 
 	DEBUGMSG(1,(TEXT("SCHUAM Driver built %s @ %s\r\n"),TEXT(__DATE__),TEXT(__TIME__) ));
 
+	m_pHda_Core = NULL;
+	m_pDevInfo = NULL;
+	m_dmachannel = NULL;
+	m_dwDeviceNumber = 0;
+	m_hIsrHandler = 0;
+	m_BusMasterBase = 0;
+
 	m_hISTInterruptEvent = NULL;
 
 	m_hISThread = NULL;
@@ -1490,8 +1497,9 @@ UINT HDA::CheckCodecFG(Codec_desc *pCodec)
         case HDA_CODEC_ALC268:
         case HDA_CODEC_ALC885:
         case HDA_CODEC_ALC888:
-		case HDA_CODEC_ALC262:
+        case HDA_CODEC_ALC262:
         case HDA_CODEC_ALC280:
+        case HDA_CODEC_ALC282:
 	        StartNode = GET_START_NODE(subnode);
 	        EndNode = StartNode + GET_TOTAL_NODE_COUNT(subnode);
             break;
@@ -2577,7 +2585,7 @@ void HDA::SetRecSource()
 void HDA:: InitChannel(UINT iDirection, ULONG ulChannelIndex)
 {
 	Channel_desc *pCh;
-	WIDGET *pWidget;
+	WIDGET *pWidget = 0;
 	UCHAR con_index = 0;
 	
 	EnterCriticalSection(&m_pHda_Core->cri_sec);

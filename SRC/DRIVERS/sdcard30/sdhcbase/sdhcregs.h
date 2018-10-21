@@ -56,6 +56,7 @@
 #define _SDHCREGS_DEFINED
 
 #include <pshpack1.H>
+#include <math.h>
 typedef struct SSDHC_REGISTERS {
     USHORT SystemAddressLo;     // 00H
     USHORT SystemAddressHi;     // 02H
@@ -333,14 +334,13 @@ typedef union __SSDHC_VERSION {
     USHORT uw;
 } SSDHC_VERSION,*PSSDHC_VERSION;
 #include <poppack.h>
-#include <math.h>
 
 // Values that MaxBlockLen maps to
 #define SDHC_CAPABILITIES_MAX_BLOCK_LENGTH_0    512
 #define SDHC_CAPABILITIES_MAX_BLOCK_LENGTH_1    1024
 #define SDHC_CAPABILITIES_MAX_BLOCK_LENGTH_2    2048
 
-#define SDHC_MAX_CLOCK_FREQUENCY      255000000    // 255 MHz
+#define SDHC_MAX_CLOCK_FREQUENCY      63000000    // 63 MHz
 
 #define SDHC_TIMEOUT_CONTROL_MAX      0x14
 

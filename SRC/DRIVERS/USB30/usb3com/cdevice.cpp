@@ -1390,15 +1390,18 @@ VOID CHub::DelayForFirstConnect (UCHAR bPort)
         if (m_fPortFirstConnect [bPort - 1]) 
         {
             USB_HUB_AND_PORT_STATUS hubStatus2;
+            UCHAR bPortSpeed;
 
             if(GetStatus(bPort, hubStatus2) != FALSE)
             {
-                if(hubStatus2.status.port.usDeviceSpeed != USB_SUPER_SPEED) 
+                bPortSpeed = GetDeviceSpeed(hubStatus2);
+
+                if(bPortSpeed != USB_SUPER_SPEED)
                 {
                     //reset to get port speed
                     if(ResetAndEnablePort(bPort))
                     {
-                        if(hubStatus2.status.port.usDeviceSpeed == USB_HIGH_SPEED) 
+                        if(bPortSpeed == USB_HIGH_SPEED)
                         {
                             Sleep (ORIENT_TIMEOUT);
                         }
@@ -1436,6 +1439,7 @@ DWORD CHub::HubStatusChangeThread(VOID)
     DEBUGCHK(m_hHubStatusChangeEvent != NULL && m_hHubStatusChangeThread != NULL);
 
     UCHAR                       bPort;
+    UCHAR                       bPortSpeed;
     USB_HUB_AND_PORT_STATUS     hubStatus;
     BOOL                        fSuccess = FALSE;
 
@@ -1454,8 +1458,11 @@ DWORD CHub::HubStatusChangeThread(VOID)
         // it though.
         Sleep(100 + 2 * m_usbHubDescriptor.bPowerOnToPowerGood);
     }
-
-    SetOrClearRemoteWakup(TRUE);
+    //USB3.0 device don't have the device remote wakup feature.
+    if(m_DeviceProtocol != 3)
+    {
+        SetOrClearRemoteWakup(TRUE);
+    }
 
     while(!m_fHubThreadClosing)
     {
@@ -1639,12 +1646,31 @@ DWORD CHub::HubStatusChangeThread(VOID)
 
         // Resume Notification.
         EnterCriticalSection(&m_csDeviceLock);
+        bPortSpeed = GetDeviceSpeed(hubStatus);
+        DEBUGMSG( ZONE_HUB, (TEXT("%s: CHub::HubStatusChangeThread At RootHubPort %d ,bPort %d , portSpeed: %d!\n"),GetDeviceType(),m_uRootHubPort, bPort, bPortSpeed) );
 
-        if(hubStatus.change.port.usSuspendChange &&
-            !hubStatus.status.port.usPortSuspended  &&
-            m_ppCDeviceOnPort[bPort-1] != NULL)
+        if (m_uRootHubPort == 0 || bPortSpeed == USB_SUPER_SPEED)
         {
-            m_ppCDeviceOnPort[bPort-1]->ResumeNotification();
+            // if in U3 state and PortLinkStateChange, try to resume this port to U0 state
+            if(hubStatus.change.port30.usPortLinkStateChange&&
+                (hubStatus.status.port.usPortSuspended || hubStatus.status.port30.usPortLinkState == 0x3 ) && // 0x3 -- DEVICE_U3 state
+                m_ppCDeviceOnPort[bPort-1] != NULL)
+            {
+                DEBUGMSG(ZONE_HUB,(TEXT("Root Hub Port==%d , Resume port = %d\r\n"),m_uRootHubPort,bPort));
+                m_ppCDeviceOnPort[bPort-1]->ResumeNotification();
+            }
+
+        }
+        else
+        {
+            // external hub and USB2.0 or USB1.0 device
+            if(hubStatus.change.port.usSuspendChange &&
+                !hubStatus.status.port.usPortSuspended  &&
+                m_ppCDeviceOnPort[bPort-1] != NULL)
+            {
+                DEBUGMSG(ZONE_HUB,(TEXT("Resume  external hub == %d  Other Speed Port =%d\r\n"),m_uRootHubPort,bPort));
+                m_ppCDeviceOnPort[bPort-1]->ResumeNotification();
+            }
         }
 
         LeaveCriticalSection(&m_csDeviceLock);
@@ -1716,6 +1742,10 @@ DWORD CHub::HubStatusChangeThread(VOID)
                             bPort));
                 }
 #endif // DEBUG
+                if(!hubStatus.status.port.usPortConnected)
+                {
+                    continue;
+                }
             }
             // ... a change with no device present must be an attach
             //     but section 7.1.7.1 of the USB 1.1 spec says we're
@@ -1727,7 +1757,7 @@ DWORD CHub::HubStatusChangeThread(VOID)
             // connect status reliably.
             BOOL fPoll = TRUE;
 
-            if (hubStatus.status.port.usDeviceSpeed != USB_SUPER_SPEED) 
+            if (bPortSpeed != USB_SUPER_SPEED)
             {
                 DelayForFirstConnect (bPort);
             }
@@ -1775,15 +1805,13 @@ DWORD CHub::HubStatusChangeThread(VOID)
                 continue;
             }
 
+            bPortSpeed = GetDeviceSpeed(hubStatus);
+
             // Resetting the port to find whether the device is LS/FS or HS is moved
             // inside AttachDevice as reseting the port requires address 0 lock.
-
-            if(hubStatus.status.port.usDeviceSpeed == USB_SUPER_SPEED)
+            if(hubStatus.status.port.usPortEnabled)
             {
-                AttachDevice(bPort,
-                            hubStatus.status.port.usDeviceSpeed,
-                            TRUE,
-                            FALSE);
+                AttachDevice(bPort, bPortSpeed, FALSE, FALSE);
             }
             else
             {
@@ -1941,9 +1969,6 @@ VOID CHub::DumpHubDescriptor(IN const PUSB_HUB_DESCRIPTOR pDescriptor)
            (TEXT("\t\twHubCharacteristics, Ganged Port Power Switching\n")));
     }
 
-    // DEBUGMSG(ZONE_DESCRIPTORS,
-    //         (TEXT("\t\twHubCharacteristics, Hub %s part of compound device\n"),
-    //         ((pDescriptor->wHubCharacteristics & USB_HUB_CHARACTERISTIC_PART_OF_COMPOUND_DEVICE) ? TEXT("IS") : TEXT("IS NOT"))));
     if(pDescriptor->wHubCharacteristics &
             USB_HUB_CHARACTERISTIC_PART_OF_COMPOUND_DEVICE)
     {
@@ -2105,7 +2130,7 @@ VOID CHub::AttachDevice(IN const UCHAR bPort,
             if(pControlPipe != NULL && pControlPipe->OpenPipe() == REQUEST_OK)
             {
                 // success
-                configStatus = DEVICE_CONFIG_STATUS_RESET_AND_ENABLE_PORT;
+                configStatus = DEVICE_CONFIG_STATUS_SCHEDULING_ENABLE_SLOT;
             }
             else
             {
@@ -2141,7 +2166,8 @@ VOID CHub::AttachDevice(IN const UCHAR bPort,
 
                 if(hubStatus.status.port.usPortConnected)
                 {
-                    bSpeed = hubStatus.status.port.usDeviceSpeed;
+                    bSpeed = GetDeviceSpeed(hubStatus);
+
                     configStatus = DEVICE_CONFIG_STATUS_OPENING_ENDPOINT0_PIPE;
 
                     DEBUGMSG(ZONE_ATTACH,
@@ -2213,6 +2239,7 @@ VOID CHub::AttachDevice(IN const UCHAR bPort,
                     m_bTierNumber,
                     StatusToString(configStatus)));
 
+                configStatus = DEVICE_CONFIG_STATUS_RESET_AND_ENABLE_PORT;
                 bConfigFailures++;
             }
 
@@ -2221,7 +2248,16 @@ VOID CHub::AttachDevice(IN const UCHAR bPort,
 
         case DEVICE_CONFIG_STATUS_SCHEDULING_ADDRESS_DEVICE:
         {
-            if(AddressDevice(bAddress, bPort, bSpeed))
+            UINT uDevRoute;
+            if (m_bTierNumber>0){
+                 uDevRoute = (bPort << ((m_bTierNumber-1)*4)) | m_uHubRoute;
+            }
+            else
+            {
+                uDevRoute = 0;
+            }
+
+            if(AddressDevice(bAddress, bPort, bSpeed, m_uRootHubPort, m_bAddress, uDevRoute))
             {
                  configStatus =
                      DEVICE_CONFIG_STATUS_SCHEDULING_GET_DEVICE_DESCRIPTOR_TEST;
@@ -2235,7 +2271,7 @@ VOID CHub::AttachDevice(IN const UCHAR bPort,
                     GetDeviceType(),
                     m_bTierNumber,
                     StatusToString(configStatus)));
-
+                configStatus = DEVICE_CONFIG_STATUS_RESET_AND_ENABLE_PORT;
                 bConfigFailures++;
             }
 
@@ -2638,14 +2674,21 @@ VOID CHub::AttachDevice(IN const UCHAR bPort,
                 pControlPipe->IsPipeHalted(&fPipeHalted);
                 bConfigFailures++;
             } else {
-                configStatus = DEVICE_CONFIG_STATUS_BANDWIDTH;
+                if(deviceInfo.usbDeviceDescriptor.bDeviceClass == USB_DEVICE_CLASS_HUB)
+                {
+                    configStatus = DEVICE_CONFIG_STATUS_SCHEDULING_GET_INITIAL_HUB_DESCRIPTOR;
+                }
+                else
+                {
+                    configStatus = DEVICE_CONFIG_STATUS_BANDWIDTH;
+                }
             }
             break;
         }
 
         case DEVICE_CONFIG_STATUS_BANDWIDTH:
         {
-            if(!DoConfigureEndpoint(bAddress))
+            if(!DoConfigureEndpoint(bAddress, &(deviceInfo.usbDeviceDescriptor), &usbHubDescriptor))
             {
                 DEBUGMSG(ZONE_ATTACH && ZONE_ERROR,
                    (TEXT("%s: CHub(%s tier %d)::AttachDevice - \
@@ -2725,14 +2768,9 @@ VOID CHub::AttachDevice(IN const UCHAR bPort,
                  dwErrorFlags == USB_NO_ERROR)
             {
                 // move to next step
-                if(deviceInfo.usbDeviceDescriptor.bDeviceClass ==
-                    USB_DEVICE_CLASS_HUB)
+                if(deviceInfo.usbDeviceDescriptor.bDeviceClass == USB_DEVICE_CLASS_HUB)
                 {
-                    // more steps need to happen for hubs
-                    usbHubDescriptor.bDescriptorLength =
-                        USB_HUB_DESCRIPTOR_MINIMUM_SIZE;
-                    //external hub is not supported
-                    configStatus = DEVICE_CONFIG_STATUS_SCHEDULING_GET_INITIAL_HUB_DESCRIPTOR;
+                    configStatus = DEVICE_CONFIG_STATUS_CREATE_NEW_HUB;
                 }
                 else
                 {
@@ -2763,35 +2801,19 @@ VOID CHub::AttachDevice(IN const UCHAR bPort,
         case DEVICE_CONFIG_STATUS_SCHEDULING_GET_HUB_DESCRIPTOR:
         {
             DEBUGCHK(deviceInfo.usbDeviceDescriptor.bDeviceClass == USB_DEVICE_CLASS_HUB);
-            DEBUGCHK((configStatus == DEVICE_CONFIG_STATUS_SCHEDULING_GET_INITIAL_HUB_DESCRIPTOR &&
-                       usbHubDescriptor.bDescriptorLength == USB_HUB_DESCRIPTOR_MINIMUM_SIZE) ||
-                     (configStatus == DEVICE_CONFIG_STATUS_SCHEDULING_GET_HUB_DESCRIPTOR &&
-                       usbHubDescriptor.bDescriptorLength > USB_HUB_DESCRIPTOR_MINIMUM_SIZE &&
-                       usbHubDescriptor.bDescriptorLength <= sizeof(usbHubDescriptor)));
-            const UCHAR bDescriptorLengthToGet = usbHubDescriptor.bDescriptorLength;
 
-            if(GetDescriptor(pControlPipe,
-                             bAddress,
-                             USB_HUB_DESCRIPTOR_TYPE,
-                             0, // hub descriptor index is 0
-                             bDescriptorLengthToGet,
-                             &usbHubDescriptor))
+            if (GetDescriptor(pControlPipe,
+                bAddress,
+                (deviceInfo.usbDeviceDescriptor.bDeviceProtocol == 3) ? USB_HUB3_DESCRIPTOR_TYPE : USB_HUB_DESCRIPTOR_TYPE,
+                0, // hub descriptor index is 0
+                (deviceInfo.usbDeviceDescriptor.bDeviceProtocol == 3) ? USB_HUB3_DESCRIPTOR_MINIMUM_SIZE : USB_HUB_DESCRIPTOR_MINIMUM_SIZE,
+                &usbHubDescriptor))
             {
-                // success
-                if(usbHubDescriptor.bDescriptorLength > bDescriptorLengthToGet)
-                {
-                    DEBUGCHK(configStatus == DEVICE_CONFIG_STATUS_SCHEDULING_GET_INITIAL_HUB_DESCRIPTOR);
-                    configStatus =
-                        DEVICE_CONFIG_STATUS_SCHEDULING_GET_HUB_DESCRIPTOR;
-                }
-                else
-                {
-                    DEBUGCHK(usbHubDescriptor.bDescriptorLength == bDescriptorLengthToGet);
+                DEBUGMSG(ZONE_ATTACH, (TEXT("HUB has %d port!!!\n"), usbHubDescriptor.bNumberOfPorts));
+                configStatus = DEVICE_CONFIG_STATUS_BANDWIDTH;
                 #ifdef DEBUG
                     DumpHubDescriptor(&usbHubDescriptor);
                 #endif // DEBUG
-                    configStatus = DEVICE_CONFIG_STATUS_CREATE_NEW_HUB;
-                }
             }
             else
             {
@@ -2802,11 +2824,8 @@ VOID CHub::AttachDevice(IN const UCHAR bPort,
                     GetDeviceType(),
                     m_bTierNumber,
                     StatusToString(configStatus)));
-
                 pControlPipe->IsPipeHalted(&fPipeHalted);
                 bConfigFailures++;
-                // Restore bDescriptorLength for the retry.
-                usbHubDescriptor.bDescriptorLength = bDescriptorLengthToGet;
             }
 
             break;
@@ -2815,25 +2834,81 @@ VOID CHub::AttachDevice(IN const UCHAR bPort,
         case DEVICE_CONFIG_STATUS_CREATE_NEW_HUB:
         {
             DEBUGCHK(pNewDevice == NULL);
-            DEBUGCHK(deviceInfo.usbDeviceDescriptor.bDeviceClass == USB_DEVICE_CLASS_HUB &&
-                      usbHubDescriptor.bDescriptorType == USB_HUB_DESCRIPTOR_TYPE &&
-                      usbHubDescriptor.bDescriptorLength >= USB_HUB_DESCRIPTOR_MINIMUM_SIZE &&
-                      deviceInfo.pnonConstUsbActiveConfig->pnonConstUsbInterfaces[0].usbInterfaceDescriptor.bNumEndpoints == 1);
 
             DEBUGCHK(m_bTierNumber < USB_MAXIMUM_HUB_TIER);
+            pNewDevice = new CExternalHub( bAddress,
+                                           deviceInfo,
+                                           bSpeed,
+                                           m_bTierNumber + 1,
+                                           usbHubDescriptor,
+                                           m_pCHcd,
+                                           this,bPort);
+            if ( pNewDevice != NULL ) {
+                //bDeviceProtocol == 3 means USB3.0 device, need set hub depth, host need the depth to search the hub and device.
+                if (deviceInfo.usbDeviceDescriptor.bDeviceProtocol == 3)
+                {
+                    configStatus = DEVICE_CONFIG_STATUS_SET_HUB_DEPTH;
+                }
+                else
+                {
+                    configStatus = DEVICE_CONFIG_STATUS_INSERT_NEW_DEVICE_INTO_UPSTREAM_HUB_PORT_ARRAY;
+                }
+            } else {
+                DEBUGMSG( ZONE_ATTACH && ZONE_ERROR, (TEXT("%s: CHub(%s tier %d)::AttachDevice - failure on %s step, no memory\n"),GetControllerName(), GetDeviceType(), m_bTierNumber, StatusToString( configStatus ) ) );
+                bConfigFailures++;
+            }
 
-            DEBUGMSG(ZONE_ATTACH && ZONE_ERROR,
-                   (TEXT("%s: CHub(%s tier %d)::AttachDevice - \
-                          failure on %s step, no memory\n"),
-                    GetControllerName(),
-                    GetDeviceType(),
-                    m_bTierNumber,
-                    StatusToString(configStatus)));
-            // external huab is not supported
-
-            bConfigFailures++;
             break;
         }
+
+        case DEVICE_CONFIG_STATUS_SET_HUB_DEPTH:
+            {
+
+                BOOL                fTransferDone = FALSE;
+                DWORD               dwBytesTransferred = 0;
+                DWORD               dwErrorFlags = USB_NOT_COMPLETE_ERROR;
+                HCD_REQUEST_STATUS  status = REQUEST_FAILED;
+                USB_DEVICE_REQUEST  usbRequest;
+
+                usbRequest.bmRequestType = USB_REQUEST_HOST_TO_DEVICE | USB_REQUEST_CLASS | USB_REQUEST_FOR_DEVICE;
+                usbRequest.bRequest = HUB_SET_DEPTH;
+                usbRequest.wValue = m_bTierNumber;
+                usbRequest.wIndex = 0;
+                usbRequest.wLength = 0;
+                if(!m_fHubThreadClosing)
+                {
+                    status = pControlPipe->IssueTransfer(bAddress, // device uAddress
+                        TransferDoneCallbackSetEvent, // callback
+                        m_hHubStatusChangeEvent, // param for callback
+                        USB_OUT_TRANSFER | USB_SEND_TO_DEVICE, // transfer flags
+                        &usbRequest, // control request
+                        0, // dwStartingFrame(not used)
+                        0, // dwFrames(not used)
+                        NULL, // aLengths(not used)
+                        0, // buffer size
+                        NULL, // data buffer
+                        0, // phys addr of buffer(not used)
+                        this, // cancel ID
+                        NULL, // lpdwIsochErrors(not used)
+                        NULL, // lpdwIsochLengths(not used)
+                        &fTransferDone, // OUT status param
+                        &dwBytesTransferred, // OUT status param
+                        &dwErrorFlags); // OUT status param
+
+                    if(status == REQUEST_OK)
+                    {
+                        configStatus = DEVICE_CONFIG_STATUS_INSERT_NEW_DEVICE_INTO_UPSTREAM_HUB_PORT_ARRAY;
+                    }
+                    else
+                    {
+                        pControlPipe->IsPipeHalted(&fPipeHalted);
+                        bConfigFailures++;
+                    }
+                }
+
+                break;
+            }
+
         case DEVICE_CONFIG_STATUS_CREATE_NEW_FUNCTION:
         {
             DEBUGCHK(pNewDevice == NULL);
@@ -3073,10 +3148,10 @@ BOOL CHub::GetDescriptor(IN CPipeAbs * const pControlPipe,
     HCD_REQUEST_STATUS  status = REQUEST_FAILED;
     USB_DEVICE_REQUEST  usbRequest;
 
-    if(bDescriptorType == USB_HUB_DESCRIPTOR_TYPE)
+    if(bDescriptorType == USB_HUB_DESCRIPTOR_TYPE || bDescriptorType == USB_HUB3_DESCRIPTOR_TYPE)
     {
         DEBUGCHK(bDescriptorIndex == 0 &&
-            wDescriptorSize >= USB_HUB_DESCRIPTOR_MINIMUM_SIZE);
+            (wDescriptorSize >= USB_HUB_DESCRIPTOR_MINIMUM_SIZE || wDescriptorSize >= USB_HUB3_DESCRIPTOR_MINIMUM_SIZE));
         usbRequest.bmRequestType = USB_REQUEST_DEVICE_TO_HOST |
                                     USB_REQUEST_CLASS |
                                     USB_REQUEST_FOR_DEVICE;
@@ -3268,11 +3343,11 @@ BOOL CHub::AddEndpoints(UCHAR bSlotId, USB_DEVICE_INFO* pDeviceInfo)
 //
 // Returns: TRUE if command passed correctly, else FALSE
 //----------------------------------------------------------------------------------
-BOOL CHub::AddressDevice(UCHAR bSlotId, UINT uPortId, UCHAR bSpeed)
+BOOL CHub::AddressDevice( UCHAR bSlotId, UINT uPortId, UCHAR bSpeed, UCHAR bRootHubPort, UCHAR bHubSID, UINT uDevRoute)
 {
     BOOL fSuccess;
 
-    fSuccess =(m_pCHcd->AddressDevice(bSlotId, uPortId, bSpeed) == 0);
+    fSuccess =(m_pCHcd->AddressDevice(bSlotId, uPortId, bSpeed, bRootHubPort, bHubSID, uDevRoute) == 0);
     return fSuccess;
 }
 
@@ -3303,9 +3378,9 @@ BOOL CHub::ResetDevice(IN const UCHAR bAddress)
 //
 // Returns: TRUE if command passed correctly, else FALSE
 //----------------------------------------------------------------------------------
-BOOL CHub::DoConfigureEndpoint(UCHAR bSlotId)
+BOOL CHub::DoConfigureEndpoint(UCHAR bSlotId, USB_DEVICE_DESCRIPTOR* pDevDesc, USB_HUB_DESCRIPTOR* pHubDesc)
 {
-    return m_pCHcd->DoConfigureEndpoint(bSlotId);
+    return m_pCHcd->DoConfigureEndpoint(bSlotId, pDevDesc, pHubDesc);
 }
 
 //----------------------------------------------------------------------------------
@@ -4525,7 +4600,10 @@ BOOL CHub::SuspendResumeOffStreamDevice(IN const UINT uAddress,
                     m_ppCDeviceOnPort[bPort - 1]->ResumeNotification();
                 }
 
-                m_ppCDeviceOnPort[bPort - 1]->NotifyOnSuspendedResumed(!fSuspend);
+                if(m_ppCDeviceOnPort[bPort - 1] != NULL)
+                {
+                    m_ppCDeviceOnPort[bPort - 1]->NotifyOnSuspendedResumed(!fSuspend);
+                }
             }
 
             break;
@@ -4699,6 +4777,9 @@ CRootHub::CRootHub(IN const USB_DEVICE_INFO& rDeviceInfo,
                                                 NULL,
                                                 0) // call base constructor
 {
+    m_uRootHubPort = 0;
+    m_uHubRoute = 0;
+    m_DeviceProtocol = 3;
 }
 
 //----------------------------------------------------------------------------------
@@ -4871,18 +4952,9 @@ BOOL CRootHub::WaitForPortStatusChange(OUT UCHAR& rPort,
                 fSuccess=TRUE;
             }
         }
-
-        if(!m_fHubThreadClosing &&
-            !fSuccess &&
-            !m_pCHcd->WaitForPortStatusChange(m_hHubStatusChangeEvent))
+        if(!m_fHubThreadClosing && !fSuccess)
         {
-            // If HCD does not support Root Hub Status Change. We do follows
-            WaitForSingleObject(m_hHubStatusChangeEvent, STANDARD_STATUS_TIMEOUT);
-        }
-
-        if((m_pCHcd->GetCapability() & HCD_SUSPEND_ON_REQUEST) != 0)
-        {
-            break;
+            m_pCHcd->WaitForPortStatusChange(m_hHubStatusChangeEvent);
         }
     }
 
@@ -4893,9 +4965,34 @@ BOOL CRootHub::WaitForPortStatusChange(OUT UCHAR& rPort,
         {
             if(rStatus.change.wWord &(1 << wBit))
             {
-                SetOrClearFeature(rPort,
-                    USB_REQUEST_CLEAR_FEATURE,
-                    wBit | 0x10);
+                   switch(wBit) {
+                         case 0:
+                         case 1:
+                         case 2:
+                         case 3:
+                         case 4:
+                                  SetOrClearFeature( rPort,
+                                       USB_REQUEST_CLEAR_FEATURE,
+                                       wBit | 0x10 );
+                                  break;
+                         case 5:
+                                  SetOrClearFeature( rPort,
+                                       USB_REQUEST_CLEAR_FEATURE,
+                                       USB_HUB_FEATURE_C_BH_PORT_RESET);
+                                  break;
+                         case 6:
+                                  SetOrClearFeature( rPort,
+                                       USB_REQUEST_CLEAR_FEATURE,
+                                       USB_HUB_FEATURE_C_PORT_LINK_STATE);
+                                  break;
+                         case 7:
+                                 SetOrClearFeature( rPort,
+                                     USB_REQUEST_CLEAR_FEATURE,
+                                     USB_HUB_FEATURE_C_PORT_CONFIG_ERROR);
+                                 break;
+                         default:
+                         break;
+                  }
             }
         }
     }
@@ -4942,6 +5039,23 @@ BOOL  CRootHub::GetStatus(IN const UCHAR bPort,
         fSuccess));
 
     return fSuccess;
+}
+
+//----------------------------------------------------------------------------------
+// Function: GetDeviceSpeed
+//
+// Description: This function will get the speed of the port and return it
+//
+// Parameters: bPort - 0 for the hub itself, otherwise the hub port number
+//
+//             rStatus - reference to USB_HUB_AND_PORT_STATUS to get the
+//                       status
+//
+// Returns: Returns value of port speed
+//----------------------------------------------------------------------------------
+UCHAR  CRootHub::GetDeviceSpeed(IN USB_HUB_AND_PORT_STATUS& rStatus )
+{
+    return rStatus.status.port30.usDeviceSpeed;
 }
 
 //----------------------------------------------------------------------------------
@@ -5051,9 +5165,9 @@ BOOL CRootHub::SetOrClearFeature(IN const WORD wPort,
                       wFeature == USB_HUB_FEATURE_PORT_POWER ||
                       wFeature == USB_HUB_FEATURE_C_PORT_CONNECTION ||
                       wFeature == USB_HUB_FEATURE_C_PORT_RESET ||
-                      wFeature == USB_HUB_FEATURE_C_WARM_PORT_RESET ||
                       wFeature == USB_HUB_FEATURE_C_PORT_ENABLE ||
                       wFeature == USB_HUB_FEATURE_C_PORT_SUSPEND ||
+                      wFeature == USB_HUB_FEATURE_C_PORT_LINK_STATE ||
                       wFeature == USB_HUB_FEATURE_C_PORT_OVER_CURRENT);
         }
     }
@@ -5113,6 +5227,780 @@ BOOL  CRootHub::SetOrClearRemoteWakup(BOOL /*fSet*/)
 {
     return TRUE;
 }
+
+// ******************************************************************
+CExternalHub::CExternalHub( IN const UCHAR address,
+                            IN const USB_DEVICE_INFO& rDeviceInfo,
+                            IN const UCHAR bSpeed,
+                            IN const UCHAR tierNumber,
+                            IN const USB_HUB_DESCRIPTOR& rUsbHubDescriptor,
+                            IN CHcd * const pCHcd  ,
+                            IN CHub * const pAttachedHub,const UCHAR uAttachedPort)
+
+//
+// Purpose: Constructor for CExternalHub
+//
+// Parameters: See description in CHub
+//
+// Returns: Nothing.
+//
+// Notes: Do not initialize static variables here. Do that in
+//        the Initialize() routine
+// ******************************************************************
+: CHub( address, rDeviceInfo, bSpeed, tierNumber, rUsbHubDescriptor,pCHcd , pAttachedHub,uAttachedPort)
+{
+    DEBUGMSG( ZONE_HUB && ZONE_VERBOSE, (TEXT("%s: +CExternalHub::CExternalHub\n"),GetControllerName()) );
+
+    m_DeviceProtocol = rDeviceInfo.usbDeviceDescriptor.bDeviceProtocol;
+    if (m_DeviceProtocol == 3)
+    {
+        m_uHubSuperSpeed = 1;
+    }
+    else
+    {
+        m_uHubSuperSpeed = 0;
+    }
+
+    if(tierNumber == 1) 
+        {
+            m_uRootHubPort = uAttachedPort;
+            m_uHubRoute = 0;
+        }
+    else
+        {
+            m_uRootHubPort = pAttachedHub->m_uRootHubPort;
+            m_uHubRoute = (uAttachedPort<<((tierNumber-2)*4)) | pAttachedHub->m_uHubRoute;
+        }
+    DEBUGMSG( ZONE_HUB && ZONE_VERBOSE, (TEXT("%s: -CExternalHub::CExternalHub\n"),GetControllerName()) );
+}
+
+// ******************************************************************
+CExternalHub::~CExternalHub( )
+//
+// Purpose: Destructor for CExternalHub
+//
+// Parameters: None
+//
+// Returns: Nothing.
+//
+// Notes: Do not delete static variables here. Do that in
+//        DeInitialize();
+// ******************************************************************
+{
+    DEBUGMSG( ZONE_HUB && ZONE_VERBOSE, (TEXT("%s: +CExternalHub::~CExternalHub\n"),GetControllerName()) );
+    // Nothing to do here yet...
+    DEBUGMSG( ZONE_HUB && ZONE_VERBOSE, (TEXT("%s: -CExternalHub::~CExternalHub\n"),GetControllerName()) );
+}
+
+// ******************************************************************
+DWORD CExternalHub::EnterOperationalState( IN CPipeAbs* const pEndpoint0Pipe )
+//
+// Purpose: Do processing needed to get this hub into a working state.
+//          For now, -create device on ports array
+//                   -create status change pipe
+//                   -start status change thread
+//
+// Parameters: pEndpoint0Pipe - pointer to open pipe for this device's
+//                              endpoint0
+//
+// Returns: ZERO if attachment completed OK and hub is operational,
+//          else FXN_DEV_STATE_ENABFAILED and bits for device state
+//
+// Notes:
+// ******************************************************************
+{
+    DEBUGMSG( ZONE_HUB, (TEXT("%s: +CExternalHub::EnterOperationalState\n"),GetControllerName()) );
+
+    DWORD dwSuccess = 0xFF;
+
+    EnterCriticalSection( &m_csDeviceLock );
+
+    DEBUGCHK( m_bAddress > 0 &&
+              m_bAddress <= USB_MAX_ADDRESS &&
+              m_bMaxNumPipes == 0 && // not yet allocated
+              m_ppCPipe == NULL && // not yet allocated
+              pEndpoint0Pipe != NULL && // should be passed in non NULL by caller
+              m_deviceInfo.usbDeviceDescriptor.bDeviceClass == USB_DEVICE_CLASS_HUB );
+
+    DEBUGCHK( m_hHubStatusChangeEvent == NULL );
+    // m_hHubStatusChangeEvent - Auto Reset, and Initial State = non-signaled
+    if(NULL == m_hHubStatusChangeEvent) {
+        m_hHubStatusChangeEvent = CreateEvent( NULL, FALSE, FALSE, NULL );
+    }
+
+    #ifdef DEBUG
+    {
+
+#ifndef USB_STRICT_ENFORCEMENT
+        // The correct settings are listed in the 1.1 USB spec at section 11.15.1.
+        // I have found at least one hub (builtin on the Clarion CDC) that does this wrong.
+      //  if (!m_fIsHighSpeed)
+        if (m_bSpeed  == USB_LOW_SPEED)
+            m_deviceInfo.pnonConstUsbActiveConfig->pnonConstUsbInterfaces[0].pnonConstUsbEndpoints[0].usbEndpointDescriptor.bInterval = 0xff;
+#endif
+        // check for status change endpoint descriptor
+        const USB_ENDPOINT_DESCRIPTOR& rED = m_deviceInfo.pnonConstUsbActiveConfig->pnonConstUsbInterfaces[0].pnonConstUsbEndpoints[0].usbEndpointDescriptor;
+        DEBUGCHK( rED.bDescriptorType == USB_ENDPOINT_DESCRIPTOR_TYPE &&
+                  (rED.bEndpointAddress & 0xf) > 0 &&
+                  (rED.bInterval == 0xff || m_bSpeed != USB_LOW_SPEED   ) &&
+                  (rED.bmAttributes & USB_ENDPOINT_TYPE_MASK) == USB_ENDPOINT_TYPE_INTERRUPT );
+    }
+    #endif // DEBUG
+    UCHAR uTTAddress=0;
+    UCHAR uTTPort=0;
+    PVOID ttContext = NULL;
+    GetUSB2TT(uTTAddress, uTTPort, ttContext);
+
+    CPipeAbs* pStatusChangePipe = CreateInterruptPipe ( &m_deviceInfo.pnonConstUsbActiveConfig->pnonConstUsbInterfaces[0].pnonConstUsbEndpoints[0].usbEndpointDescriptor,
+                                                            m_bSpeed ,m_bAddress,
+                                                            uTTAddress,uTTPort,ttContext,
+                                                            m_pCHcd);
+
+    // be sure to call OpenPipe last
+    if ( pStatusChangePipe != NULL &&
+         m_hHubStatusChangeEvent != NULL &&
+         AllocatePipeArray() &&
+         AllocateDeviceArray() &&
+         REQUEST_OK == pStatusChangePipe->OpenPipe() ) {
+
+        pStatusChangePipe->m_pLogicalDevice = pEndpoint0Pipe->m_pLogicalDevice;
+        // Thread will use the pipes, so put them into our array
+        DEBUGCHK( m_bMaxNumPipes == 2 &&
+                  m_ppCPipe != NULL );
+        m_ppCPipe[ ENDPOINT0_CONTROL_PIPE ] = pEndpoint0Pipe;
+        m_ppCPipe[ STATUS_CHANGE_INTERRUPT_PIPE ] = pStatusChangePipe;
+        m_hHubStatusChangeThread = CreateThread( 0, 0, HubStatusChangeThreadStub, this, 0, NULL );
+        if ( m_hHubStatusChangeThread != NULL ) {
+            CeSetThreadPriority( m_hHubStatusChangeThread, g_dwIstThreadPriority + RELATIVE_PRIO_STSCHG);
+            dwSuccess = 0;
+        } else {
+            pStatusChangePipe->ClosePipe();
+        }
+    }
+    if ( dwSuccess != 0 ) {
+        m_dwDevState |= FXN_DEV_STATE_ENABFAILED; // terminal failed state during attach
+
+        // pStatusChangePipe would have been closed above in case of failure
+        delete pStatusChangePipe;
+
+        // caller will take care of closing the endpoint 0 pipe. We NULL out
+        // the entries in the m_ppCPipe array because otherwise both our
+        // ~CDevice destructor and the caller would try to free the pipe.
+        m_ppCPipe[ ENDPOINT0_CONTROL_PIPE ] = NULL;
+        m_ppCPipe[ STATUS_CHANGE_INTERRUPT_PIPE ] = NULL;
+        // m_ppCPipe[] will be freed in ~CDevice
+
+        // m_ppCDeviceOnPort [] will be freed in ~CHub
+
+        if ( m_hHubStatusChangeEvent ) {
+            CloseHandle( m_hHubStatusChangeEvent );
+            m_hHubStatusChangeEvent = NULL;
+        }
+
+        DEBUGCHK( m_hHubStatusChangeThread == NULL );
+    }
+    // set state to "operational" - clear "attach" bits but preserve "detach" bits
+    m_dwDevState &= FXN_DEV_STATE_DETACH_BITS;
+    dwSuccess = m_dwDevState;
+
+    LeaveCriticalSection( &m_csDeviceLock );
+
+    DEBUGMSG( ZONE_HUB, (TEXT("%s: -CExternalHub::EnterOperationalState, returning state %d\n"),GetControllerName(), dwSuccess) );
+    return dwSuccess;
+}
+
+// ******************************************************************
+BOOL CExternalHub::PowerAllHubPorts( void )
+//
+// Purpose: Power all of this hub's ports so that they can send
+//          status change notifications
+//
+// Parameters: none
+//
+// Returns: TRUE if hub ports powered, else FALSE
+//
+// Notes:
+// ******************************************************************
+{
+    DEBUGMSG( ZONE_ATTACH && ZONE_VERBOSE, (TEXT("%s: +CExternalHub::PowerAllHubPorts\n"),GetControllerName()) );
+
+    BOOL fFailed = FALSE;
+
+    for ( UCHAR port = 1; !fFailed && port <= m_usbHubDescriptor.bNumberOfPorts; port++ ) {
+        //USB3.0 & USB1.1 HUB Device don't have the USB_HUB_FEATURE_PORT_INDICATOR feature.
+        if ((m_uHubSuperSpeed == 1)||(m_deviceInfo.usbDeviceDescriptor.bcdUSB == 0x110 && m_deviceInfo.usbDeviceDescriptor.bDeviceProtocol == 0))
+        {
+            fFailed = !SetOrClearFeature( port,
+                                  USB_REQUEST_SET_FEATURE,
+                                  USB_HUB_FEATURE_PORT_POWER );
+            DEBUGMSG(ZONE_HUB, (TEXT("%s: CExternalHub::PowerAllHubPorts m_uRootHubPort %d .Port %d !\n"),GetControllerName(),m_uRootHubPort ,port) );
+        } 
+        else
+        {
+            fFailed = !SetOrClearFeature( port,
+                USB_REQUEST_SET_FEATURE,
+                USB_HUB_FEATURE_PORT_POWER );
+            if (!fFailed)
+                SetOrClearFeature(port,
+                                  USB_REQUEST_SET_FEATURE,
+                                  USB_HUB_FEATURE_PORT_INDICATOR); // Set to the Auto Indicator.
+        }
+    }
+
+    DEBUGMSG( ZONE_ERROR && fFailed, (TEXT("%s: CExternalHub::PowerAllHubPorts - failed!\n"),GetControllerName()) );
+    DEBUGMSG( ZONE_ATTACH && ZONE_VERBOSE, (TEXT("%s: -CExternalHub::PowerAllHubPorts, returing %d\n"),GetControllerName(), !fFailed) );
+    return !fFailed;
+}
+
+// ******************************************************************
+BOOL CExternalHub::GetStatusChangeBitmap( OUT DWORD& rdwHubBitmap )
+//
+// Purpose: Wait until a status change occurs on one of this hub's ports,
+//          then return the hubBitmap showing which ports have changed
+//
+// Parameters: rdwHubBitmap - OUT param to get hub bitmap
+//
+// Returns: TRUE if rdwHubBitmap set, else FALSE
+//
+// Notes: For a description of the hub bitmap, see USB spec 1.1,
+//        section 11.13.4
+// ******************************************************************
+{
+#define HUB_INTERRUPT_TRANFER_TIMEOUT (100*1000)
+    DEBUGMSG( ZONE_ATTACH && ZONE_VERBOSE, (TEXT("%s: +CExternalHub::GetStatusChangeBitmap\n"),GetControllerName()) );
+
+    // for 1-7 ports,  the bitmap will be 1 byte,
+    // for 8-15 ports, the bitmap will be 2 bytes,
+    // etc. We only support up to 31 ports since
+    // DWORD is 4 bytes.
+    DEBUGCHK( m_usbHubDescriptor.bNumberOfPorts <= 31 );
+    const DWORD         dwBitmapSize = 1 + (m_usbHubDescriptor.bNumberOfPorts >> 3);
+    BOOL                fSuccess = FALSE;
+    BOOL                fTransferDone = FALSE;
+    DWORD               dwBytesTransferred = 0;
+    DWORD               dwErrorFlags = USB_NOT_COMPLETE_ERROR;
+    HCD_REQUEST_STATUS  status = REQUEST_FAILED;
+
+    rdwHubBitmap = 0;
+
+    // pipe 1 = status change endpoint pipe
+    if ( !m_fHubThreadClosing) {
+        DEBUGCHK( m_bMaxNumPipes == 2 );
+        PREFAST_DEBUGCHK( m_ppCPipe != NULL );
+        PREFAST_DEBUGCHK( m_ppCPipe[ STATUS_CHANGE_INTERRUPT_PIPE ] != NULL );
+
+        status = m_ppCPipe[ STATUS_CHANGE_INTERRUPT_PIPE  ]->IssueTransfer(
+                                    m_bAddress, // hub address,
+                                    TransferDoneCallbackSetEvent, // callback func
+                                    m_hHubStatusChangeEvent, // callback param
+                                    USB_IN_TRANSFER | USB_SEND_TO_DEVICE, // transfer flags
+                                    NULL, // lpvControlHeader (not used)
+                                    0, // dwStartingFrame (not used)
+                                    0, // dwFrames (not used)
+                                    NULL, // aLengths (not used)
+                                    dwBitmapSize, // bitmap size to read
+                                    &rdwHubBitmap, // data buffer
+                                    0, // physical address of buffer (not used)
+                                    this, // cancel id
+                                    NULL, // adwIsochErrors (not used)
+                                    NULL, // adwIsochLengths (not used)
+                                    &fTransferDone, // OUT status param
+                                    &dwBytesTransferred, // OUT status param
+                                    &dwErrorFlags ); // OUT status param
+        DEBUGMSG( ZONE_ERROR && status != REQUEST_OK, (TEXT("%s: CExternalHub::GetStatusChangeBitmap - error issuing transfer!\n"),GetControllerName()));
+        if ( status == REQUEST_OK ) {
+            DWORD dwReturn = WaitForSingleObject( m_hHubStatusChangeEvent, INFINITE );
+            if (!fTransferDone || dwReturn!= WAIT_OBJECT_0) {
+                m_ppCPipe[   STATUS_CHANGE_INTERRUPT_PIPE  ]->AbortTransfer(
+                                               NULL, // callback function
+                                               NULL, // callback parameter
+                                               this ); // cancel ID
+                // After Abort the has been called. So reset the event.
+                if (!m_fHubThreadClosing && m_hHubStatusChangeEvent)
+                    ResetEvent( m_hHubStatusChangeEvent );
+            }
+            else
+                DEBUGCHK( fTransferDone );
+        }
+    }
+    fSuccess = ( status == REQUEST_OK &&
+                 fTransferDone &&
+                 dwBytesTransferred == dwBitmapSize &&
+                 dwErrorFlags == USB_NO_ERROR &&
+                 rdwHubBitmap != 0 );
+
+    DEBUGMSG( ZONE_ATTACH && ZONE_VERBOSE, (TEXT("%s: -CExternal::GetStatusChangeBitmap, bitmap = 0x%08x, returing fSuccess = %d\n"),GetControllerName(), rdwHubBitmap, fSuccess) );
+    return fSuccess;
+}
+
+// ******************************************************************
+BOOL CExternalHub::WaitForPortStatusChange( OUT UCHAR& rPort,
+                                            OUT USB_HUB_AND_PORT_STATUS& rStatus )
+//
+// Purpose: Wait until a status change occurs on one of this hub's ports,
+//          then return the status change information in rPort and rStatus
+//
+// Parameters: rPort - out param to get port # of port whose status changed
+//
+//             rStatus - out structure describing port's status change
+//
+// Returns: TRUE if rPort and rStatus set properly, else FALSE
+//
+// Notes: This routine is also responsible for clearing the status
+//        change notifications from the port itself
+// ******************************************************************
+{
+    DEBUGMSG( ZONE_ATTACH && ZONE_VERBOSE, (TEXT("%s: +CExternalHub::WaitForPortStatusChange\n"),GetControllerName()) );
+
+    DWORD dwStatusChangeBitmap = 0;
+    BOOL  fSuccess = FALSE;
+
+    if ( GetStatusChangeBitmap( dwStatusChangeBitmap ) ) {
+        DEBUGCHK( dwStatusChangeBitmap != 0 );
+        // see which port changed
+        for ( rPort = 0; rPort <= m_usbHubDescriptor.bNumberOfPorts; rPort++ ) {
+            if ( dwStatusChangeBitmap & (1 << rPort) ) {
+                // deal with this port change, and report others next time around
+                break;
+            }
+        }
+        DEBUGCHK( rPort <= m_usbHubDescriptor.bNumberOfPorts );
+        // now we need to get the actual status change
+        if ( GetStatus( rPort, rStatus ) ) {
+            // we need to clear each of the changed feature flags
+            // otherwise we will get the change notification
+            // forever.
+            //
+            // For ports, each changeBit corresponds to the change
+            // feature "changeBit | 0x10". This happens due to the
+            // way features are numbered.
+            // refer to the usb3.0 spec 10.14.2.6.2 port status change bit, need clear the change bit.
+            UCHAR maxChangeBit = (m_DeviceProtocol ==3) ? 7: 5;
+            UCHAR changeBitToClearFeature = 0x10;
+            if ( rPort == 0 ) { // change was on the hub itself
+                // For hubs, each changeBit corresponds directly to
+                // the feature "changeBit", so we | with 0.
+                maxChangeBit = USB_HUB_FEATURE_C_HUB_OVER_CURRENT;
+                changeBitToClearFeature = 0;
+            }
+            for ( UCHAR changeBit = 0; !m_fHubThreadClosing && changeBit <= maxChangeBit; changeBit++ ) {
+                if ( rStatus.change.wWord & (1 << changeBit) ) {
+                  switch(changeBit) {
+                         case 0:
+                         case 1:
+                         case 2:
+                         case 3:
+                         case 4:
+                                  SetOrClearFeature( rPort,
+                                       USB_REQUEST_CLEAR_FEATURE,
+                                       changeBit | changeBitToClearFeature );
+                                  break;
+                         case 5:
+                                  SetOrClearFeature( rPort,
+                                       USB_REQUEST_CLEAR_FEATURE,
+                                       USB_HUB_FEATURE_C_BH_PORT_RESET);
+                                  break;
+                         case 6:
+                                  SetOrClearFeature( rPort,
+                                       USB_REQUEST_CLEAR_FEATURE,
+                                       USB_HUB_FEATURE_C_PORT_LINK_STATE);
+                                  break;
+                         case 7:
+                                 SetOrClearFeature( rPort,
+                                     USB_REQUEST_CLEAR_FEATURE,
+                                     USB_HUB_FEATURE_C_PORT_CONFIG_ERROR);
+                                 break;
+                         default:
+                         break;
+                  }
+                }
+            }
+
+            if(rPort > m_usbHubDescriptor.bNumberOfPorts)
+                fSuccess = FALSE; //Otherwise an access violation will occur.
+            else
+                fSuccess = TRUE;
+        }
+    }
+
+    DEBUGMSG( ZONE_ATTACH && ZONE_VERBOSE, (TEXT("%s: -CExternal::WaitForPortStatusChange, returing rPort = %d, fSuccess = %d\n"),GetControllerName(), rPort, fSuccess) );
+    return fSuccess;
+}
+
+// ******************************************************************
+BOOL  CExternalHub::GetStatus( IN const UCHAR port,
+                               OUT USB_HUB_AND_PORT_STATUS& rStatus )
+//
+// Purpose: This function will get the status of the port and return it
+//
+// Parameters: port - 0 for the hub itself, otherwise the hub port number
+//
+//             rStatus - reference to USB_HUB_AND_PORT_STATUS to get the
+//                       status
+//
+// Returns: TRUE if the request succeeded, else FALSE
+//
+// Notes:
+// ******************************************************************
+{
+    DEBUGMSG( ZONE_HUB && ZONE_VERBOSE, (TEXT("%s: +CExternalHub::GetStatus - port = %d\n"),GetControllerName(), port ));
+
+    PREFAST_DEBUGCHK( m_ppCPipe != NULL);
+    DEBUGCHK( m_bMaxNumPipes == 2 &&
+              m_ppCPipe[ ENDPOINT0_CONTROL_PIPE ] != NULL &&
+              port <= m_usbHubDescriptor.bNumberOfPorts );
+
+    BOOL                fTransferDone = FALSE;
+    DWORD               dwBytesTransferred = 0;
+    DWORD               dwErrorFlags = USB_NOT_COMPLETE_ERROR;
+    HCD_REQUEST_STATUS  status = REQUEST_FAILED;
+    USB_DEVICE_REQUEST  usbRequest;
+
+    if ( port == 0 ) {
+        // requst is to the hub iteself
+        usbRequest.bmRequestType = USB_REQUEST_DEVICE_TO_HOST | USB_REQUEST_CLASS | USB_REQUEST_FOR_DEVICE;
+    } else {
+        // request is to an actual port
+        usbRequest.bmRequestType = USB_REQUEST_DEVICE_TO_HOST | USB_REQUEST_CLASS | USB_REQUEST_FOR_OTHER;
+    }
+    usbRequest.bRequest = USB_REQUEST_GET_STATUS;
+    usbRequest.wValue = 0;
+    usbRequest.wIndex = port;
+    usbRequest.wLength = sizeof( USB_HUB_AND_PORT_STATUS );
+    // wLength should be 4, according to USB spec 1.1 11.16.2.5/11.16.2.6
+    DEBUGCHK( sizeof( USB_HUB_AND_PORT_STATUS ) == 4 );
+
+    if ( !m_fHubThreadClosing ) {
+        status = m_ppCPipe[ ENDPOINT0_CONTROL_PIPE ]->IssueTransfer(
+                         m_bAddress, // address of this hub
+                         TransferDoneCallbackSetEvent, // callback func
+                         m_hHubStatusChangeEvent, // callback param
+                         USB_IN_TRANSFER | USB_SEND_TO_DEVICE, // transfer flags
+                         &usbRequest, // control request
+                         0, // dwStartingFrame (not used)
+                         0, // dwFrames (not used)
+                         NULL, // aLengths (not used)
+                         sizeof( USB_HUB_AND_PORT_STATUS ), // buffer size
+                         &rStatus, // buffer
+                         0, // phys addr of buffer (not used)
+                         this, // cancel id
+                         NULL, // adwIsochErrors (not used)
+                         NULL, // adwIsochLengths (not used)
+                         &fTransferDone, // OUT param for transfer
+                         &dwBytesTransferred, // OUT param for transfer
+                         &dwErrorFlags ); // OUT param for transfer
+        if ( status == REQUEST_OK ) {
+            WaitForSingleObject( m_hHubStatusChangeEvent, INFINITE );
+            if ( m_fHubThreadClosing ) {
+                m_ppCPipe[ ENDPOINT0_CONTROL_PIPE ]->AbortTransfer(
+                                             NULL, // callback function
+                                             NULL, // callback parameter
+                                             this ); // cancel ID
+            }
+        }
+        DEBUGCHK( fTransferDone );
+    }
+    BOOL fSuccess = (status == REQUEST_OK &&
+                     fTransferDone &&
+                     dwBytesTransferred == sizeof( USB_HUB_AND_PORT_STATUS ) &&
+                     dwErrorFlags == USB_NO_ERROR);
+
+    DEBUGMSG( ZONE_HUB && ZONE_VERBOSE, (TEXT("%s: -CExternalHub::GetStatus - port = %d, returing BOOL %d\n"),GetControllerName(), port, fSuccess) );
+    return fSuccess;
+}
+
+UCHAR  CExternalHub::GetDeviceSpeed(IN USB_HUB_AND_PORT_STATUS& rStatus )
+{
+       UCHAR bSpeed = 0;
+       if (m_DeviceProtocol == 3)
+       {
+            bSpeed = USB_SUPER_SPEED;
+       }
+       else
+       {
+           // According to usb 2.0 spec 11.24.2.7.Need convert device speed from get port status command.
+           switch(rStatus.status.port.usDeviceSpeed){
+           case 0:
+               bSpeed = USB_FULL_SPEED;
+               break;
+           case 1:
+               bSpeed = USB_LOW_SPEED;
+               break;
+           case 2:
+               bSpeed = USB_HIGH_SPEED;
+               break;
+           default:
+               DEBUGMSG(ZONE_HUB, (TEXT("CExternalHub: Get USB2.0 Port SPEED Error!!!\n")));
+               bSpeed = USB_UNKNOWN_SPEED;
+               break;
+           }
+       }
+       return bSpeed;
+ }
+
+// ******************************************************************
+BOOL CExternalHub::ResetAndEnablePort( IN const UCHAR port )
+//
+// Purpose: reset/enable device on the given port so that when this
+//          function completes, the device is listening on address 0
+//
+// Parameters: port - port # to reset/enable
+//
+// Returns: TRUE if port reset, else FALSE
+//
+// Notes: Assumes address0 lock is held
+// ******************************************************************
+{ 
+    DEBUGMSG( ZONE_ATTACH && ZONE_VERBOSE, (TEXT("%s: +CExternalHub::ResetAndEnablePort - port = %d\n"),GetControllerName(), port) );
+
+    DEBUGCHK( port >= 1 && port <= m_usbHubDescriptor.bNumberOfPorts );
+
+    BOOL fSuccess = FALSE;
+
+    if ( !SetOrClearFeature( port,
+                            USB_REQUEST_SET_FEATURE,
+                            USB_HUB_FEATURE_PORT_RESET ) ) {
+        DEBUGMSG( ZONE_ERROR, (TEXT("%s: -CExternalHub::ResetAndEnablePort - could set reset feature for port %d\n"),GetControllerName(), port) );
+        return FALSE;
+    }
+    for ( UCHAR attempt = 0; !m_fHubThreadClosing && attempt < 5; attempt++ ) {
+        DWORD   dwStatusChangeBitmap = 0;
+        // USB2.0 11.5.1.5 20 ms resetting period.
+        Sleep(20);
+        if ( GetStatusChangeBitmap( dwStatusChangeBitmap ) &&
+             (dwStatusChangeBitmap & (1 << port)) ) {
+            USB_HUB_AND_PORT_STATUS portStatus;
+            fSuccess = ( GetStatus( port, portStatus ) &&
+                         portStatus.change.port.usResetChange && // port has reset
+                         !portStatus.status.port.usPortReset && // reset no longer asserted
+                         portStatus.status.port.usPortEnabled && // port enabled
+                         SetOrClearFeature( port, // clear reset change flag
+                                            USB_REQUEST_CLEAR_FEATURE,
+                                            USB_HUB_FEATURE_C_PORT_RESET ) );
+            if (fSuccess) { // According Specification. 50 ms delay after this.
+                Sleep(50);
+            }
+            break;
+        }
+    }
+
+    DEBUGMSG( ZONE_ATTACH && ZONE_VERBOSE, (TEXT("%s: -CExternalHub::ResetAndEnablePort - port = %d, returning %d\n"),GetControllerName(), port, fSuccess ) );
+    return fSuccess;
+}
+
+// ******************************************************************
+void CExternalHub::DisablePort( IN const UCHAR port )
+//
+// Purpose: disable the given port
+//
+// Parameters: port - port # to disable
+//
+// Returns: nothing
+//
+// Notes:
+// ******************************************************************
+{
+    DEBUGMSG( ZONE_ATTACH && ZONE_VERBOSE, (TEXT("%s: +CExternalHub::DisablePort - port = %d\n"),GetControllerName(), port) );
+
+    if ( !m_fHubThreadClosing ) {
+        SetOrClearFeature( port,
+                           USB_REQUEST_CLEAR_FEATURE,
+                           USB_HUB_FEATURE_PORT_ENABLE );
+        // disable port can take time to act
+        Sleep( 10 );
+    }
+
+    DEBUGMSG( ZONE_ATTACH && ZONE_VERBOSE, (TEXT("%s: -CExternalHub::DisablePort - port = %d\n"),GetControllerName(), port) );
+}
+
+// ******************************************************************
+BOOL CExternalHub::SetOrClearFeature( IN const WORD port,
+                                      IN const UCHAR setOrClearFeature,
+                                      IN const USHORT feature )
+//
+// Purpose: This function will set or clear a feature on the given port.
+//
+// Parameters: port - 0 for the hub itself, otherwise the hub port number
+//
+//             setOrClearFeature - this is USB_REQUEST_SET_FEATURE or
+//                                 USB_REQUEST_CLEAR_FEATURE
+//
+//             feature - one of the features to set/clear - this should
+//                       be USB_FEATURE_ENDPOINT_STALL or one of the
+//                       USB_HUB_FEATURE_* features
+//
+// Returns: TRUE if the request succeeded, else FALSE
+//
+// Notes:
+// ******************************************************************
+{
+    DEBUGMSG( ZONE_HUB && ZONE_VERBOSE, (TEXT("%s: +CExternalHub::SetOrClearFeature - port = %d, set/clear = 0x%x, feature = 0x%x\n"),GetControllerName(), port, setOrClearFeature, feature) );
+
+#ifdef DEBUG
+{
+    if ( setOrClearFeature == USB_REQUEST_CLEAR_FEATURE ) {
+        if ( port == 0 ) {
+            // USB spec 1.1, 11.16.2.2 - these are the only
+            // features which should be cleared for ports
+            DEBUGCHK( feature == USB_HUB_FEATURE_C_HUB_LOCAL_POWER ||
+                      feature == USB_HUB_FEATURE_C_HUB_OVER_CURRENT ||
+                      feature == USB_FEATURE_ENDPOINT_STALL );
+        } else {
+            // USB spec 1.1, 11.16.2.2 - these are the only
+            // features which should be cleared for ports
+            DEBUGCHK( feature == USB_HUB_FEATURE_PORT_ENABLE ||
+                      feature == USB_HUB_FEATURE_PORT_SUSPEND ||
+                      feature == USB_HUB_FEATURE_PORT_POWER ||
+                      feature == USB_HUB_FEATURE_C_PORT_CONNECTION ||
+                      feature == USB_HUB_FEATURE_C_PORT_RESET ||
+                      feature == USB_HUB_FEATURE_C_PORT_ENABLE ||
+                      feature == USB_HUB_FEATURE_C_PORT_SUSPEND ||
+                      feature == USB_HUB_FEATURE_C_PORT_LINK_STATE ||
+                      feature == USB_HUB_FEATURE_C_PORT_OVER_CURRENT );
+        }
+    } else if ( setOrClearFeature == USB_REQUEST_SET_FEATURE ) {
+        // should only be setting port features
+        DEBUGCHK( port > 0 &&
+                  (feature == USB_HUB_FEATURE_PORT_RESET ||
+                   feature == USB_HUB_FEATURE_PORT_SUSPEND ||
+                   feature == USB_HUB_FEATURE_PORT_INDICATOR ||
+                   feature == USB_HUB_FEATURE_PORT_POWER) );
+    } else {
+        // shouldn't be here
+        ASSERT(0);
+    }
+    DEBUGCHK( m_bMaxNumPipes == 2 && // control and status change
+              m_ppCPipe[ ENDPOINT0_CONTROL_PIPE ] != NULL &&
+              port <= m_usbHubDescriptor.bNumberOfPorts );
+}
+#endif // DEBUG
+
+    BOOL                fTransferDone = FALSE;
+    DWORD               dwBytesTransferred = 0;
+    DWORD               dwErrorFlags = USB_NOT_COMPLETE_ERROR;
+    HCD_REQUEST_STATUS  status = REQUEST_FAILED;
+    USB_DEVICE_REQUEST  usbRequest;
+    // USB3.0 don't have the port enable change and suspend feature.
+    if ((m_DeviceProtocol == 3) && ((feature == USB_HUB_FEATURE_PORT_ENABLE) ||
+        (feature == USB_HUB_FEATURE_PORT_SUSPEND)))
+        return TRUE;
+    if ( port == 0 ) {
+        usbRequest.bmRequestType = USB_REQUEST_HOST_TO_DEVICE | USB_REQUEST_CLASS | USB_REQUEST_FOR_DEVICE;
+    } else {
+        usbRequest.bmRequestType = USB_REQUEST_HOST_TO_DEVICE | USB_REQUEST_CLASS | USB_REQUEST_FOR_OTHER;
+    }
+    usbRequest.bRequest = setOrClearFeature;
+    usbRequest.wValue = feature;
+    usbRequest.wIndex = port;
+    usbRequest.wLength = 0;
+    PREFAST_DEBUGCHK(m_ppCPipe != NULL);
+
+    if ( !m_fHubThreadClosing ) {
+        status = m_ppCPipe[ ENDPOINT0_CONTROL_PIPE ]->IssueTransfer(
+                         m_bAddress, // address of this hub
+                         TransferDoneCallbackSetEvent, // callback func
+                         m_hHubStatusChangeEvent, // callback param
+                         USB_OUT_TRANSFER | USB_SEND_TO_DEVICE, // transfer flags
+                         &usbRequest, // control request
+                         0, // dwStartingFrame (not used)
+                         0, // dwFrames (not used)
+                         NULL, // aLengths (not used)
+                         0, // buffer size
+                         NULL, // buffer
+                         0, // phys addr of buffer (not used)
+                         this, // cancel id
+                         NULL, // adwIsochErrors (not used)
+                         NULL, // adwIsochLengths (not used)
+                         &fTransferDone, // OUT param for transfer
+                         &dwBytesTransferred, // OUT param for transfer
+                         &dwErrorFlags ); // OUT param for transfer
+        if ( status == REQUEST_OK ) {
+            WaitForSingleObject( m_hHubStatusChangeEvent,STANDARD_REQUEST_TIMEOUT);
+            if ( m_fHubThreadClosing ) {
+                m_ppCPipe[ ENDPOINT0_CONTROL_PIPE ]->AbortTransfer(
+                                               NULL, // callback function
+                                               NULL, // callback parameter
+                                               this ); // cancel ID
+            }
+        }
+        DEBUGCHK( fTransferDone );
+    }
+    BOOL fSuccess = (status == REQUEST_OK &&
+                     fTransferDone &&
+                     dwBytesTransferred == 0 &&
+                     dwErrorFlags == USB_NO_ERROR);
+
+    DEBUGMSG( ZONE_ERROR && !fSuccess, (TEXT("%s: CExternalHub::SetOrClearFeature - port = %d, set/clear = 0x%x, feature = 0x%x, FAILED\n"),GetControllerName(), port, setOrClearFeature, feature ) );
+    DEBUGMSG( ZONE_HUB && ZONE_VERBOSE, (TEXT("%s: -CExternalHub::SetOrClearFeature - port = %d, set/clear = 0x%x, feature = 0x%x, returing BOOL %d\n"),GetControllerName(), port, setOrClearFeature, feature, fSuccess) );
+    return fSuccess;
+}
+// ******************************************************************
+BOOL  CExternalHub::SetOrClearRemoteWakup(BOOL bSet)
+//
+// Purpose: This function will set or clear a remove wakeup feature
+//          External HUB.
+//
+//
+// Returns: TRUE if the request succeeded, else FALSE
+//
+// Notes:
+// ******************************************************************
+{
+    DEBUGMSG( ZONE_HUB && ZONE_VERBOSE, (TEXT("%s: +CExternalHub::SetOrClearRemoteWakup - bSet = %d\r\n"),GetControllerName(), bSet) );
+
+    BOOL                fTransferDone = FALSE;
+    DWORD               dwBytesTransferred = 0;
+    DWORD               dwErrorFlags = USB_NOT_COMPLETE_ERROR;
+    HCD_REQUEST_STATUS  status = REQUEST_FAILED;
+    USB_DEVICE_REQUEST  usbRequest;
+
+    usbRequest.bmRequestType = USB_REQUEST_HOST_TO_DEVICE | USB_REQUEST_FOR_DEVICE;
+    usbRequest.bRequest = (bSet? USB_REQUEST_SET_FEATURE : USB_REQUEST_CLEAR_FEATURE);
+    usbRequest.wValue = USB_FEATURE_REMOTE_WAKEUP;
+    usbRequest.wIndex = 0;
+    usbRequest.wLength = 0;
+
+    if ( !m_fHubThreadClosing ) {
+        status = m_ppCPipe[ ENDPOINT0_CONTROL_PIPE ]->IssueTransfer(
+                         m_bAddress, // address of this hub
+                         TransferDoneCallbackSetEvent, // callback func
+                         m_hHubStatusChangeEvent, // callback param
+                         USB_OUT_TRANSFER | USB_SEND_TO_DEVICE, // transfer flags
+                         &usbRequest, // control request
+                         0, // dwStartingFrame (not used)
+                         0, // dwFrames (not used)
+                         NULL, // aLengths (not used)
+                         0, // buffer size
+                         NULL, // buffer
+                         0, // phys addr of buffer (not used)
+                         this, // cancel id
+                         NULL, // adwIsochErrors (not used)
+                         NULL, // adwIsochLengths (not used)
+                         &fTransferDone, // OUT param for transfer
+                         &dwBytesTransferred, // OUT param for transfer
+                         &dwErrorFlags ); // OUT param for transfer
+        if ( status == REQUEST_OK ) {
+            WaitForSingleObject( m_hHubStatusChangeEvent, INFINITE );
+            if ( m_fHubThreadClosing ) {
+                m_ppCPipe[ ENDPOINT0_CONTROL_PIPE ]->AbortTransfer(
+                                               NULL, // callback function
+                                               NULL, // callback parameter
+                                               this ); // cancel ID
+            }
+        }
+        DEBUGCHK( fTransferDone );
+    }
+    BOOL fSuccess = (status == REQUEST_OK &&
+                     fTransferDone &&
+                     dwBytesTransferred == 0 &&
+                     dwErrorFlags == USB_NO_ERROR);
+
+    DEBUGMSG( ZONE_HUB && ZONE_VERBOSE, (TEXT("%s: -CExternalHub::SetOrClearRemoteWakup -  returing BOOL %d\n"),GetControllerName(),fSuccess));
+    return fSuccess;
+
+}
+
+
 
 #define IS_FUNCTION_DEVICE_UNPLUGGED \
     do {\

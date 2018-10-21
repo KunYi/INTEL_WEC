@@ -1346,6 +1346,89 @@ cleanUp:
 }
 
 //----------------------------------------------------------------------------------
+// Function: ChangeMaxPacketSize
+//
+// Description: Send an Evaluate Context command to the controller to update Context. 
+//
+// Parameters: bSlotId - slot ID
+//
+//             bMaxPktSize - device Max Packet Size identified from GET_DESCRIPTOR.
+//
+// Returns: XHCD_OK if command passed correctly, else < 0
+//----------------------------------------------------------------------------------
+ INT CHW::ChangeMaxPacketSize(UCHAR bSlotId, UINT bMaxPktSize)
+{
+    INT iRet = 0;
+    LOGICAL_DEVICE *pVirtDev = NULL;
+    ENDPOINT_CONTEXT_DATA *pEp0Context;
+    INPUT_CONTROL_CONTEXT *pCtrlContext;
+    COMPLETION *pCmdCompletion;
+
+    if (bSlotId != 0)
+    {
+        pVirtDev = m_pLogicalDevices [bSlotId];
+    }
+
+    if(!pVirtDev)
+    {
+        return -XHCD_INVALID;
+    }
+    pCmdCompletion = &pVirtDev->cmdCompletion;
+    pCtrlContext = m_pXhcdRing->GetInputControlContext(pVirtDev->pInContext);
+    if(pCtrlContext == NULL)
+    {
+        return -XHCD_INVALID;
+    }
+    pEp0Context = GetEndpointContext(pVirtDev->pInContext, 0);
+    pEp0Context->dwMaxPacketSize = bMaxPktSize;
+    pCtrlContext->uAddFlags = ENDPOINT_ZERO;
+    iRet = m_pXhcdRing->IssueEvaluateContext(pVirtDev->pInContext->u64Dma, bSlotId);
+    if(iRet)
+    {
+        return iRet;
+    }
+
+    m_pXhcdRing->InitCompletion(pCmdCompletion);
+    RingCommandDoorbell();
+    
+    if(WaitForCompletion(pCmdCompletion, USB_CTRL_SET_TIMEOUT) <= 0)
+    {
+        m_pXhcdRing->MoveDequeue(m_pXhcdRing->m_pCmdRing, FALSE);
+        return -XHCD_TIMEDOUT;
+    }
+
+    switch(pVirtDev->uCmdStatus)
+    {
+    case STATUS_CONTEXT_STATE:
+    case STATUS_BAD_SPLIT:
+        iRet = -XHCD_INVALID;
+        break;
+
+    case STATUS_TRANSFER_ERROR:
+        iRet = -XHCD_TRANSFER_ERROR;
+        break;
+
+    case STATUS_DB_SUCCESS:
+        break;
+
+    case STATUS_INVALID:
+        iRet = -XHCD_INVALID;
+        break;
+
+    default:
+        iRet = -XHCD_INVALID;
+        break;
+    }
+
+    if(iRet)
+    {
+        return iRet;
+    }
+    pCtrlContext->uAddFlags = 0;
+
+    return XHCD_OK;
+}
+//----------------------------------------------------------------------------------
 // Function: AddressDevice
 //
 // Description: Send an Address Device command to the controller. 
@@ -1360,7 +1443,7 @@ cleanUp:
 //----------------------------------------------------------------------------------
 INT CHW::AddressDevice(UCHAR bSlotId,
                        UINT uPortId,
-                       UCHAR bSpeed) 
+                       UCHAR bSpeed, UCHAR bRootHubPort, UCHAR bHubSID, UINT uDevRoute) 
 {
     LOGICAL_DEVICE *pVirtDev = NULL;
     INT iRet = 0;
@@ -1376,7 +1459,7 @@ INT CHW::AddressDevice(UCHAR bSlotId,
         return -XHCD_INVALID;
     }
 
-    iRet = m_pXhcdRing->InitializeLogicalDevice(bSlotId, bSpeed, uPortId);
+    iRet = m_pXhcdRing->InitializeLogicalDevice(bSlotId, bSpeed, uPortId, bRootHubPort, bHubSID, uDevRoute);
     if(iRet)
     {
         return iRet;
@@ -1602,40 +1685,46 @@ BOOL CHW::GetPortStatus(IN const UCHAR bPort,
         { 
             // Now fill in the USB_HUB_AND_PORT_STATUS structure
             //portSC.bit.usConnectStatusChange;
-            rStatus.change.port.usConnectStatusChange =
+            rStatus.change.port30.usConnectStatusChange =
                 ((uPortReg & CONNECTION_STATUS_CHANGE) != 0);
             //portSC.bit.usPortEnableChange;
-            rStatus.change.port.usPortEnableChange =
-                ((uPortReg & PORT_ENABLE_CHANGE) != 0);
+            //rStatus.change.port30.usPortEnableChange =
+            //    ((uPortReg & PORT_ENABLE_CHANGE) != 0);
             //portSC.bit.usOverCurrentChange;
-            rStatus.change.port.usOverCurrentChange =
+            rStatus.change.port30.usOverCurrentChange =
                 ((uPortReg & OVER_CURRENT_CHANGE) != 0);
-            rStatus.change.port.usResetChange =
+            rStatus.change.port30.usResetChange =
                 ((uPortReg & RESET_CHANGE) != 0);
-            rStatus.change.port.usWarmResetChange =
+            rStatus.change.port30.usWarmResetChange =
                 ((uPortReg & WARM_RESET_CHANGE) != 0);
+            rStatus.change.port30.usPortLinkStateChange =
+                ((uPortReg & RESET_CLEAR) != 0);
+            rStatus.change.port30.usPortConfigError =
+                ((uPortReg & PORT_CONFIG_ERROR_CHANGE) != 0);
             // for root hub, we don't set any of these change bits:
             DEBUGCHK(rStatus.change.port.usSuspendChange == 0);
 
             uPortSpeed = DEVICE_SPEED(uPortReg);
 
-            rStatus.status.port.usDeviceSpeed = uPortSpeed;
+            rStatus.status.port30.usDeviceSpeed = uPortSpeed;
 
             //portSC.bit.ConnectStatus;
-            rStatus.status.port.usPortConnected =
+            rStatus.status.port30.usPortConnected =
                 ((uPortReg & PORT_CONNECTION_STATUS) != 0);
             //portSC.bit.Enabled;
-            rStatus.status.port.usPortEnabled =
+            rStatus.status.port30.usPortEnabled =
                 ((uPortReg & STATUS_PE) != 0);
             //portSC.bit.OverCurrentActive ;
-            rStatus.status.port.usPortOverCurrent =
+            rStatus.status.port30.usPortOverCurrent =
                 ((uPortReg & STATUS_OC) != 0);
             // root hub ports are always powered
-            rStatus.status.port.usPortPower = 1;
+            rStatus.status.port30.usPortPower = 1;
             //portSC.bit.Reset;
-            rStatus.status.port.usPortReset =
+            rStatus.status.port30.usPortReset =
                 ((uPortReg & STATUS_RESET) != 0);
             //portSC.bit.Suspend
+            rStatus.status.port30.usPortLinkState =
+                ((uPortReg & STATE_MASK) >> STATE_OFFSET);
             rStatus.status.port.usPortSuspended =
                 ((uPortReg & STATE_MASK) == DEVICE_U3);
         }
@@ -1869,10 +1958,12 @@ BOOL CHW::RootHubFeature(IN const UCHAR bPort,
                 uTemp |= RESET_CHANGE;
                 break;          
 
-            case USB_HUB_FEATURE_C_WARM_PORT_RESET:
+            case USB_HUB_FEATURE_C_BH_PORT_RESET:
                 uTemp |= WARM_RESET_CHANGE;
                 break;  
-
+            case USB_HUB_FEATURE_C_PORT_LINK_STATE:
+                uTemp |= RESET_CLEAR;
+                break;
             case USB_HUB_FEATURE_C_PORT_SUSPEND:
             case USB_HUB_FEATURE_PORT_POWER:
             default:
@@ -2422,21 +2513,21 @@ INT CHW::ScratchpadAlloc()
     for(i = 0; i < iNumSp; i++)
     {
         VOID *pBuf = NULL;
-        UINT64 u64Dma;
+        UINT uDma = 0;
         
         if (m_iPageSize != 0) {
             pBuf = AllocPhysMem(m_iPageSize,
                             PAGE_READWRITE | PAGE_NOCACHE,
                             m_iPageSize,
                             0,
-                            (PULONG) &u64Dma);
+                            (PULONG) &uDma);
         }
         if(pBuf == NULL)
         {
             goto cleanUp4;
         }
 
-        m_pScratchpad->pu64SpArray[i] = u64Dma;
+        m_pScratchpad->pu64SpArray[i] = uDma;
         m_pScratchpad->ppSpBuffers[i] = pBuf;
     }
 
@@ -2943,9 +3034,9 @@ BOOL CHW::IsTrbInSement(RING_SEGMENT *pStartSeg,
 //
 // Returns: Returns XHCD_OK if configure endpoint command passed, < 0 otherwise.
 //----------------------------------------------------------------------------------
-BOOL CHW::DoConfigureEndpoint(UCHAR bSlotId) const
+BOOL CHW::DoConfigureEndpoint(UCHAR bSlotId, USB_DEVICE_DESCRIPTOR* pDevDesc, USB_HUB_DESCRIPTOR* pHubDesc) const
 {
-    return(m_pXhcdRing->DoConfigureEndpoint(bSlotId) == XHCD_OK);
+    return(m_pXhcdRing->DoConfigureEndpoint(bSlotId, pDevDesc, pHubDesc) == XHCD_OK);
 }
 
 //----------------------------------------------------------------------------------

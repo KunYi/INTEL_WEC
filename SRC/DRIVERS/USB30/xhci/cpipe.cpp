@@ -973,7 +973,7 @@ BOOL CQueuedPipe::ResetEndPoint(VOID)
             }
         }
     }
-    if(!m_pCXhcd->DoConfigureEndpoint(m_bDeviceAddress))
+    if(!m_pCXhcd->DoConfigureEndpoint(m_bDeviceAddress, NULL, NULL))
     {
         return FALSE;
     }
@@ -1412,6 +1412,7 @@ VOID CControlPipe::ChangeMaxPacketSize(IN const USHORT wMaxPacketSize)
              wNewMaxPacketSize == 512);
     
     m_usbEndpointDescriptor.wMaxPacketSize = wNewMaxPacketSize;
+    m_pCXhcd->ChangeMaxPacketSize(m_bDeviceAddress, m_usbEndpointDescriptor.wMaxPacketSize);
 
     LeaveCriticalSection(&m_csPipeLock);
 

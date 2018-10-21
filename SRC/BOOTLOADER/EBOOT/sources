@@ -97,16 +97,23 @@ TARGETLIBS=\
 !IF ($(_WINCEOSVER) < 800 )
     $(_COMMONOAKROOT)\lib\$(_CPUINDPATH)\fulllibc.lib
 !ELSE
-	$(_COMMONOAKROOT)\lib\$(_CPUINDPATH)\bootcrt.lib
+    $(_COMMONOAKROOT)\lib\$(_CPUINDPATH)\bootcrt.lib
 !ENDIF
+
 
 !IF "$(BSP_KITL_INTELGBE_E1000)" == "1"
 TARGETLIBS=$(TARGETLIBS) $(_TARGETPLATROOT)\SRC\COMMON\ETHDRV\E1000ETHDBG\bsp_ethdrv_e1000.lib
 !ENDIF
 
 
-
 FILE_VIEW_ROOT_FOLDER= \
     boot.bib \
 
+
+
+INCLUDES= \
+    ..\..\common\inc; \
+    $(_WINCEROOT)\platform\common\src\soc\x86_ms_v1\inc; \
+    $(_WINCEROOT)\platform\common\src\x86\inc; \
+    $(_WINCEROOT)\platform\common\src\inc
 

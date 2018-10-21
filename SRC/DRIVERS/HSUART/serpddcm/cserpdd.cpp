@@ -740,7 +740,27 @@ SerSetRTS(
     DEBUGMSG (ZONE_FUNCTION,(TEXT("+SerSetRTS 0x%X\r\n"), pHead));
     if (pHead)
         ((CSerialPDD *)pHead)->SetRTS(TRUE);
-    DEBUGMSG (ZONE_FUNCTION,(TEXT("-SerSetRTS0x%X\r\n"), pHead));
+    DEBUGMSG (ZONE_FUNCTION,(TEXT("-SerSetRTS 0x%X\r\n"), pHead));
+}
+VOID
+SerSetAutoRTS(
+           PVOID   pHead // @parm PVOID returned by HWinit.
+           )
+{
+    DEBUGMSG (ZONE_FUNCTION,(TEXT("+SerSetAutoRTS 0x%X\r\n"), pHead));
+    if (pHead)
+        ((CSerialPDD *)pHead)->SetAutoFlowCtlEnable(TRUE);
+    DEBUGMSG (ZONE_FUNCTION,(TEXT("-SerSetAutoRTS 0x%X\r\n"), pHead));
+}
+VOID
+SerClrAutoRTS(
+           PVOID   pHead // @parm PVOID returned by HWinit.
+           )
+{
+    DEBUGMSG (ZONE_FUNCTION,(TEXT("+SerClrAutoRTS 0x%X\r\n"), pHead));
+    if (pHead)
+        ((CSerialPDD *)pHead)->SetAutoFlowCtlEnable(FALSE);
+    DEBUGMSG (ZONE_FUNCTION,(TEXT("-SerClrAutoRTS 0x%X\r\n"), pHead));
 }
 BOOL
 SerEnableIR(
@@ -950,7 +970,9 @@ HW_VTBL IoVTbl = {
     SerPurgeComm,
     SerSetDCB,
     SerSetCommTimeouts,
-    SerIoctl
+    SerIoctl,
+	SerSetAutoRTS,
+	SerClrAutoRTS
     };
 
 

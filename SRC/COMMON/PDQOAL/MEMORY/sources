@@ -52,6 +52,9 @@ this software.
 TARGETNAME=oal_memory_atom
 TARGETTYPE=LIBRARY
 
+!IF "$(BSP_APIC)" == "1"
+CDEFINES=$(CDEFINES) -DAPIC
+!ENDIF
 
 INCLUDES=\
     ..\..\inc; \

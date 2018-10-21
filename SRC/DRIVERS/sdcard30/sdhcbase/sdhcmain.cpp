@@ -22,7 +22,7 @@
 // initialize debug zones
 SD_DEBUG_INSTANTIATE_ZONES(
                            TEXT("SDHC"), // module name
-                           ZONE_ENABLE_INIT | ZONE_ENABLE_ERROR | ZONE_ENABLE_WARN,
+                           /*ZONE_ENABLE_INIT | ZONE_ENABLE_ERROR | ZONE_ENABLE_WARN*/0xffffffff,
                            TEXT("Interrupts"),
                            TEXT("Send Handler "), 
                            TEXT("Responses"), 

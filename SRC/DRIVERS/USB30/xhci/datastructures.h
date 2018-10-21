@@ -222,12 +222,17 @@ typedef struct _SLOT_CONTEXT_DATA
 {
     DWORD   dwRouteString : 20;
     DWORD   dwSpeed : 4;
-    DWORD   dwRes : 3;
+    DWORD   dwRes : 1;
+    DWORD   dwMtt : 1;
+    DWORD   dwHub : 1;
     DWORD   dwContextEntries : 5;
     DWORD   dwMaxExitLatency : 16;
     DWORD   dwRootHubPort : 8;
     DWORD   dwNumberOfPorts : 8;
-    DWORD   dwTtInfo;
+    DWORD   dwTtInfoHubSlotId:8;
+    DWORD   dwTtInfoPortNumb:8;
+    DWORD   dwTtInfoThinkTime:8;
+    DWORD   dwTtInfoRes:8;
     DWORD   dwUsbDeviceAddress : 8;
     DWORD   dwReserv : 19;
     DWORD   dwSlotState : 5;

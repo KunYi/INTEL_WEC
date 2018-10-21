@@ -960,7 +960,7 @@ void    CPdd16550Isr::XmitInterruptHandler(PUCHAR pTxBuffer, ULONG *pBuffLen)
         DWORD dwDataAvaiable = *pBuffLen;
         *pBuffLen = 0;
 
-        if (!(SERIAL_MCR_AFCE & m_pReg16550->Read_MCR()) && ((m_DCB.fOutxCtsFlow && IsCTSOff()) ||(m_DCB.fOutxDsrFlow && IsDSROff()))) { // We are Follow off
+        if (!(SERIAL_MCR_AFCE & m_pReg16550->Read_MCR()) && ((m_DCB.fOutxCtsFlow && IsCTSOff()))) { //Follow off
             DEBUGMSG(ZONE_THREAD|ZONE_WRITE,(TEXT("CPdd16550::XmitInterruptHandler! Flow Off, Data Discard.=== CTSOFF %d\r\n"), m_CTSOFFCount));
 
             if (m_CTSOFFCount > 10 )

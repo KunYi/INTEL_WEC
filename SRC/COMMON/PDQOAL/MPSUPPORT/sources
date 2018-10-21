@@ -52,6 +52,14 @@ this software.
 TARGETNAME=oal_mpsupport_atom
 TARGETTYPE=LIBRARY
 
+!IF "$(BSP_APIC)" == "1"
+CDEFINES=$(CDEFINES) -DAPIC
+!ENDIF
+
+!IF "$(BSP_ACPICA)" == "1"
+CDEFINES=$(CDEFINES) -DACPI_CA 
+!ENDIF
+
 ASM_SAFESEH=1
 
 !IF "$(BSP_NM10)" == "1"
@@ -59,12 +67,14 @@ CDEFINES=$(CDEFINES) -DENABLE_NM10_WORKAROUND
 !ENDIF
 
 INCLUDES=..\..\inc; \
+		..\..\acpica\os_specific\service_layers; \
        $(_WINCEROOT)\platform\common\src\x86\inc; \
        $(_WINCEROOT)\platform\common\src\soc\x86_ms_v1\inc; \
        $(INCLUDES)
 
 SOURCES=mpstart.asm \
         mpsupport.c \
+        apic.c	\
         
         
 

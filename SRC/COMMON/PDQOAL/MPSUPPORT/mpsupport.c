@@ -60,6 +60,7 @@
 #include <Timer.h>
 #include "mpsupport.h"
 #include "nkintr.h"
+#include "acpica_itf.h"
 
 // APIC ICR-LOW bit positions
 #define ICR_VECTOR                                  0       // bit 0-7
@@ -103,6 +104,12 @@
 #define IPI_QUERY_PERF_COUNTER                      (OEM_FIRST_IPI_COMMAND + 1)
 #define IPI_FLUSH_TLB                               (OEM_FIRST_IPI_COMMAND + 2)
 
+#ifdef DEBUG
+#define MP_MSG_ZONE 	TRUE
+#else
+#define MP_MSG_ZONE 	FALSE
+#endif
+
 extern DWORD MpStart_RM_Length;
 extern DWORD MpStart_PM_Length;
 extern DWORD PMAddr;
@@ -125,19 +132,22 @@ const ULONGLONG tmpGDT[] = {
     0x00CF92000000FFFF,         // 0x10: Ring 0 data, Limit = 4G
 };
 
-//data Structure for Multi-processor Floating Point Structure (MP FPS)
-typedef struct {
-char     m_cSignature[4];   // FPS Signature "_MP_"
-ULONG    m_ulPhysAddrPtr;   // Physical address of the MP configuration table.
-UCHAR    m_ucLength;        // The length of the floating pointer structure table
-UCHAR    m_ucSpec;          // The version number of the MP specification supported.
-UCHAR    m_ucCheckSum;      // Checksum of the complete pointer structure
-UCHAR    m_ucFeature1;      // Bits 0-7: MP System Configuration Type.
-UCHAR    m_ucFeature2;      // Bit 7: IMCRP (IMCR presence bit)
-UCHAR    m_ucFeature3;      // Reserved
-UCHAR    m_ucFeature4;      // Reserved
-UCHAR    m_ucFeature5;      // Reserved
-}MP_FPS;
+
+#define	MP_TYPE_CPU			0
+#define	MP_TYPE_BUS			1
+#define	MP_TYPE_IOAPIC		2
+#define	MP_TYPE_INTSRC		3
+#define	MP_TYPE_LINTSRC		4
+
+#define MP_POLARITY_CONFORMS       0
+#define MP_POLARITY_ACTIVE_HIGH    1
+#define MP_POLARITY_RESERVED       2
+#define MP_POLARITY_ACTIVE_LOW     3
+
+#define MP_TRIGGER_CONFORMS        (0)
+#define MP_TRIGGER_EDGE            (1<<2)
+#define MP_TRIGGER_RESERVED        (2<<2)
+#define MP_TRIGGER_LEVEL           (3<<2)
 
 // Bit 7: IMCRP presence bit
 #define IMCRP                   0x80
@@ -164,6 +174,21 @@ DWORD OEMMpPerCPUInit (void);
 void OEMIpiHandler (DWORD dwCommand, DWORD dwData);
 BOOL OEMSendInterProcessorInterrupt (DWORD dwType, DWORD dwTarget);
 BOOL OEMMpCpuPowerFunc (DWORD dwProcessor, BOOL fOnOff, DWORD dwHint);
+
+#ifdef APIC
+extern ApicGlobalSystemInterrupt g_gsi[MAX_GSI];
+DWORD ggsicount;
+
+extern ApicIrqRoutingMap  g_irm[MAX_IRM];      
+DWORD girmcount;
+
+MP_BUS BusList[MAX_BUS_ENTRY];
+DWORD buscount;
+MP_IOAPIC IoApicList[MAX_IOAPIC_ENTRY];
+DWORD ioapiccount;
+MP_INTSRC IntSrcList[MAX_IA_ENTRY];
+DWORD intsrccount;
+#endif
 
 // NOTE: calling this function requires either in interrupt/idle context, or holding a
 //       spinlock. Otherwise, thread switch can occur and endup running on another cpu.
@@ -241,11 +266,10 @@ OEMKdEnableTimer(
 //
 static BOOL CPUSupportsAPIC()
 {
-    const DWORD MODELID_K5 = 0;
     const DWORD APIC_FLAG = 1<<9;
 
     BOOL HasAPIC = FALSE;
-    DWORD FeatureFlags = 0, Model = 0, ProcID = 0;
+    DWORD FeatureFlags = 0, ProcID = 0;
 
     __asm {
         mov eax, 01h
@@ -323,7 +347,7 @@ BOOL OEMStartAllCPUs (PLONG pnCpus, FARPROC pfnContinue)
 
 
     // Copy Real-Mode Startup code to the startup page
-    memcpy (pSipiPage, MpStart_RM, MpStart_RM_Length);
+    memcpy( pSipiPage, MpStart_RM, MpStart_RM_Length);
 
     // Copy Protected-Mode startup code to follow the startup page
     memcpy ((LPBYTE) pSipiPage + MpStart_RM_Length, MpStart_PM, MpStart_PM_Length);
@@ -363,7 +387,7 @@ BOOL OEMStartAllCPUs (PLONG pnCpus, FARPROC pfnContinue)
 
     DEBUGMSG (1, (L"Send another SIPI\r\n"));
 
-    IoDelay (2000);
+    IoDelay (8000); // enough delay to get CPUs ready
 
     // send SIPI to all-but-self
     g_pApic->IcrLow = ICR_DESTINATION_ALL_BUT_SELF
@@ -520,7 +544,7 @@ BOOL OEMMpCpuPowerFunc (DWORD dwProcessor, BOOL fOnOff, DWORD dwHint)
 
 void OALMpInit (void)
 {
-    OALMSG(OAL_FUNC, (L"+OALMpInit\r\n"));
+    OALMSG(MP_MSG_ZONE, (L"+OALMpInit\r\n"));
 
     if (fOalMpEnable)
     {
@@ -532,10 +556,10 @@ void OALMpInit (void)
         }
         else
         {
-            OALMSG(OAL_WARN, (L"MP Support was disabled as APIC was not detected.\r\n"));
+            OALMSG(MP_MSG_ZONE, (L"MP Support was disabled as APIC was not detected.\r\n"));
         }
     }
-    OALMSG(OAL_FUNC, (L"-OALMpInit\r\n"));
+    OALMSG(MP_MSG_ZONE, (L"-OALMpInit\r\n"));
 }
 
 
@@ -601,7 +625,7 @@ static const MP_FPS* MpScanFps(DWORD dwphysStart, DWORD dwLength)
     {
         if (0 == strncmp(psVirtStart + dwOffset, szSig, _countof(szSig) - 1)) 
 		{
-            OALMSG(1, (TEXT(" MP FPS found")));
+            OALMSG(MP_MSG_ZONE, (TEXT(" MP FPS found")));
             return (const MP_FPS*)(psVirtStart + dwOffset);
         }
     }
@@ -671,7 +695,7 @@ static const MP_FPS* MPGetFpsBaseAddr()
     if (pMpFps)
     {
         // we found the Mp_Fps, make sure it's valid
-        if(pMpFps->m_ucLength == 1)
+        if(pMpFps->Length == 1)
         {
              //According to Intel MP Spec, Length 1 mean 16 BYTE data block
              dwLength = 16;
@@ -726,28 +750,304 @@ BOOL GetMPFpsInfo(MP_FPS_TYPE Type, DWORD *pdwData)
     {
         //return the MP version
         case MP_FPS_VERSION: 
-            *pdwData = (DWORD) (pMpFpsAddr->m_ucSpec);
+            *pdwData = (DWORD) (pMpFpsAddr->Spec);
             fRetVal = TRUE;
             break;
         //return the MP Config Table Phy Addr
         case MP_CONFIG_TABLE_PHY_ADDR: 
-            *pdwData = (DWORD) (pMpFpsAddr->m_ulPhysAddrPtr);
+            *pdwData = (DWORD) (pMpFpsAddr->PhysAddrPtr);
             fRetVal = TRUE;
             break;
 
         //To indicate the presense of IMCR bit
         case MP_IMCRP: 
-			if( pMpFpsAddr->m_ucFeature2 & IMCRP )
+			if( pMpFpsAddr->Feature2 & IMCRP )
                 fRetVal = TRUE;
 			else
 				fRetVal = FALSE;
             break;
 
         default:
-            RETAILMSG (1,(TEXT("GetSMPInfo: unknown code %x\n"),Type));
+            OALMSG (MP_MSG_ZONE,(TEXT("GetSMPInfo: unknown code %x\n"),Type));
             fRetVal = FALSE;
 
     }
 
     return fRetVal;
 }
+
+#ifdef APIC
+#ifndef ACPI_CA
+
+// init the interrupte assignment entry
+void MpGetIaEntry(MP_INTSRC *m)
+{
+	int i;
+
+	OALMSG(MP_MSG_ZONE, (TEXT("Int: type %d, pol %d, trig %d, bus %02x, IRQ %02x, APIC ID %x, APIC INT %02x\n"),
+		m->type, m->irqflag & 3, (m->irqflag >> 2) & 7, m->srcbus,
+		m->srcbusirq, m->dstapic, m->dstirq));
+
+	for (i = 0; i < MAX_IA_ENTRY; i++) {
+		if (IntSrcList[i].type != MP_TYPE_INTSRC){
+			break;
+			}
+	}
+
+	if(i >= MAX_IA_ENTRY){
+		return ;
+		}
+
+	memcpy(&IntSrcList[i], m, sizeof(*m));
+	intsrccount++;
+	OALMSG (MP_MSG_ZONE,(TEXT("MpGetIaEntry:intsrccount %d\n"),intsrccount));
+
+}
+
+static void MpGetIoapicEntry(MP_IOAPIC *m)
+{
+
+	int i;
+
+	for (i = 0; i < MAX_IOAPIC_ENTRY; i++){
+		if (IoApicList[i].type != MP_TYPE_IOAPIC){
+			break;
+			}
+		}
+	if(i >= MAX_IOAPIC_ENTRY){
+		return;
+		}
+	
+	memcpy(&IoApicList[i],m,sizeof(MP_IOAPIC));
+	ioapiccount++;
+}
+
+
+int MpInitApicGlobalSystemInterruptInfo()
+{
+	int i = 0;
+	for (i = 0; i < MAX_GSI; ++i)  {
+        memset(&g_gsi[i], 0, sizeof(ApicGlobalSystemInterrupt));
+        g_gsi[i].irq = 0xFF;
+		g_gsi[i].ioApicID = -1;                         
+		g_gsi[i].ioApicPAddr = -1;                      
+		g_gsi[i].ioApicVAddr = (BYTE volatile *)-1;      
+    	}
+
+	// the first 16 ISA interrupts are active high and edge triggered
+	for (i = 0; i < 16; ++i)	{
+		g_gsi[i].irq = i;
+		g_gsi[i].trigger = EDGE_TRIGGERED;
+		g_gsi[i].polarity = ACTIVE_HIGH;
+		g_gsi[i].ioApicID = -1;                    
+		g_gsi[i].ioApicPAddr = -1;                      
+		g_gsi[i].ioApicVAddr = (BYTE volatile *)-1;     
+		g_gsi[i].ioApicInput = i;                        
+	}
+
+    return TRUE;
+}
+
+
+int	MpGetApicInterruptOverrideInfo(){
+
+	int i;
+	for (i=0;i<MAX_IA_ENTRY;i++) {
+
+		MP_INTSRC *intsrc =&IntSrcList[i];
+		
+		if(intsrc->type==0){
+			return TRUE;
+			}
+
+		if(intsrc->dstirq>15){
+			return TRUE;
+			}
+
+		if(intsrc->srcbusirq !=intsrc->dstirq ||
+			( intsrc->irqflag !=0 && (intsrc->irqflag != (g_gsi[intsrc->dstirq].polarity|g_gsi[intsrc->dstirq].trigger<<2)))){
+
+			if (intsrc->dstirq != intsrc->srcbusirq){
+				g_gsi[intsrc->dstirq].irq = 0xFF; 
+			}
+
+			g_gsi[intsrc->dstirq].irq = intsrc->dstirq;
+
+			// polarity
+			if ( ( intsrc->irqflag & MP_POLARITY_MASK) == MP_POLARITY_CONFORMS){
+				if ( intsrc->srcbus == 0 ){
+					g_gsi[intsrc->dstirq].polarity = ACTIVE_HIGH;
+				}
+			}
+			else if ( (intsrc->irqflag & MP_POLARITY_MASK ) == MP_POLARITY_ACTIVE_HIGH ){
+				g_gsi[intsrc->dstirq].polarity = ACTIVE_HIGH;
+			}
+			else if ( (intsrc->irqflag & MP_POLARITY_MASK) == MP_POLARITY_ACTIVE_LOW ){
+				g_gsi[intsrc->dstirq].polarity = ACTIVE_LOW;
+			}
+			else if ( (intsrc->irqflag &MP_POLARITY_MASK) == MP_POLARITY_RESERVED ){
+				// invalid (reserved)
+			}
+
+			// trigger mode
+			if (( intsrc->irqflag & MP_TRIGGER_MASK) == MP_TRIGGER_CONFORMS ){
+				if ( intsrc->srcbus == 0 /*ISA*/ ){
+					g_gsi[intsrc->dstirq].trigger= EDGE_TRIGGERED;
+				}
+			}
+			else if ( (intsrc->irqflag & MP_TRIGGER_MASK) == MP_TRIGGER_EDGE ){
+				g_gsi[intsrc->dstirq].trigger = EDGE_TRIGGERED;
+			}
+			else if ( (intsrc->irqflag & MP_TRIGGER_MASK) == MP_TRIGGER_LEVEL )
+				g_gsi[intsrc->dstirq].trigger = LEVEL_TRIGGERED;
+		}else if ( (intsrc->irqflag & MP_TRIGGER_MASK) == MP_TRIGGER_RESERVED ){
+
+			// invalid (reserved)
+		}
+
+	}
+
+	return TRUE;
+}
+
+int 	MpGetIoApicInfo(){
+
+ 
+	BYTE volatile * volatile        ioapicvaddr = NULL;
+	DWORD                           ver = 0;
+	BYTE                            maxRedirEntries = 0;
+	BYTE                            input = 0;
+	BYTE							i;
+	
+	for (i=0;i<ioapiccount;i++){
+
+		MP_IOAPIC *pioapic = &IoApicList[i];
+		if(pioapic->type==0){
+			return TRUE;
+			}
+
+
+	    	OALMSG(MP_MSG_ZONE,(L"GetIoApicInfo() Id %d Address 0x%08X ", 
+			                             pioapic->apicid,
+										 pioapic->apicaddr));
+
+		// access IOAPIC via an indirect addressing scheme using APIC_IND and APIC_DAT registers
+		ioapicvaddr = (BYTE volatile *)AcpiOsMapMemory(pioapic->apicaddr, APIC_CHIP_SIZE);
+		if (ioapicvaddr == NULL){
+		    OALMSG (MP_MSG_ZONE, (L"Failed to memory map IOAPIC"));
+			return FALSE;
+		}
+
+		*(ioapicvaddr + APIC_IND) = APIC_IND_VER;           // access to APIC_IND_VER
+		ver = *(DWORD volatile *)(ioapicvaddr + APIC_DAT);  // read APIC_IND_VER data
+		maxRedirEntries = (BYTE)((ver & 0x00FF0000) >> 16);
+
+		for (input = 0; input <= maxRedirEntries; ++input){
+		
+			g_gsi[input].ioApicID =pioapic->apicid;
+			g_gsi[input].ioApicInput = input;
+			g_gsi[input].ioApicPAddr = pioapic->apicaddr;
+			
+			// for PCI interrupts ( > 15) set to LEVEL_TRIGGERED & ACTIVE_LOW
+			if (input > 15)	{
+				g_gsi[input].irq = input;
+				g_gsi[input].polarity = ACTIVE_LOW;
+				g_gsi[input].trigger = LEVEL_TRIGGERED;
+			}
+		}
+		AcpiOsUnmapMemory((void*)ioapicvaddr, APIC_CHIP_SIZE); 
+	}
+	return TRUE;
+}
+
+BOOL MpGlobalSystemInterruptInfo()
+{
+    
+	MpInitApicGlobalSystemInterruptInfo();
+	MpGetApicInterruptOverrideInfo();
+	MpGetIoApicInfo();
+
+	return TRUE;
+}
+
+void x86InitMPTable(){
+
+	static const MP_FPS *pMpFpsAddr;
+	static const MP_TABLE *pMpTable;
+	DWORD  length=0;
+	UCHAR *mpentry=NULL;
+	ULONG mptablesize=0;
+
+	OALMSG (MP_MSG_ZONE, (TEXT(" -----------+++ x86InitMP +++---------------")));
+
+	ggsicount=0;
+	girmcount=0;
+	buscount=0;
+	ioapiccount=0;
+	intsrccount=0;
+	memset(IoApicList,0,sizeof(MP_IOAPIC));
+
+	//Get the mptable floating point struct address.
+	pMpFpsAddr = MPGetFpsBaseAddr();
+	if(NULL == pMpFpsAddr){
+	    return ;
+		}
+
+	OALMSG (MP_MSG_ZONE, (TEXT("spec version:%d"),pMpFpsAddr->Spec));
+	OALMSG (MP_MSG_ZONE, (TEXT("mptable header addr:0x%x"),pMpFpsAddr->PhysAddrPtr));
+
+	//Get the mptable address
+	pMpTable = (MP_TABLE *)AcpiOsMapMemory(pMpFpsAddr->PhysAddrPtr,sizeof(MP_TABLE));
+
+	//Get the mptable length
+	mptablesize = pMpTable->Length;
+	AcpiOsUnmapMemory(pMpTable, sizeof(MP_TABLE));
+	OALMSG (MP_MSG_ZONE, (TEXT("mptable mptablesize:%d"),mptablesize));
+
+	//Get the whole mptable
+	pMpTable = (MP_TABLE *)AcpiOsMapMemory(pMpFpsAddr->PhysAddrPtr,mptablesize);
+	length = sizeof(MP_TABLE);
+	mpentry =((UCHAR *)pMpTable) + length;
+
+
+	while (length < pMpTable->Length) {
+		switch (*mpentry) {
+		case MP_TYPE_CPU:
+			mpentry += sizeof(MP_CPU);
+			length += sizeof(MP_CPU);
+			break;
+		case MP_TYPE_BUS:
+			mpentry += sizeof(MP_BUS);
+			length += sizeof(MP_BUS);
+			break;
+		case MP_TYPE_IOAPIC:
+			OALMSG (MP_MSG_ZONE, (TEXT("mptable ENTRY_IOAPIC")));
+			MpGetIoapicEntry((MP_IOAPIC *)mpentry);
+			mpentry += sizeof(MP_IOAPIC);
+			length += sizeof(MP_IOAPIC);
+			break;
+		case MP_TYPE_INTSRC:
+			OALMSG (MP_MSG_ZONE, (TEXT("mptable ENTRY_INTSRC")));
+			MpGetIaEntry(( MP_INTSRC *)mpentry);
+			mpentry += sizeof(MP_INTSRC);
+			length += sizeof(MP_INTSRC);
+			break;
+		case MP_TYPE_LINTSRC:
+			mpentry += sizeof(MP_LINTSRC);
+			length += sizeof(MP_LINTSRC);
+			break;
+		default:
+			length = pMpTable->Length;
+			break;
+		}
+
+	}
+	AcpiOsUnmapMemory(pMpTable, mptablesize);
+	OALMSG (MP_MSG_ZONE, (TEXT(" -----------+++ end x86InitMP +++---------------")));
+}
+
+void x86UnInitMPTable(){
+}
+#endif //acpica
+#endif //APIC
+

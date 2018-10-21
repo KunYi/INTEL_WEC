@@ -266,9 +266,9 @@ protected:
     CEDEVICE_POWER_STATE    m_cpsCurrent;                   // current power state
     BOOL                    m_fDriverShutdown;              // driver is terminating
 
-    BOOL                    m_fHardwareInitialized;     // InitializeHardware() succeeded 
-    BOOL                    m_fRegisteredWithBusDriver; // SDHCDRegisterHostController() succeeded
-    BOOL                    m_fInterruptInitialized;    // InterruptInitialize() succeeded
+    BOOL                    m_fHardwareInitialized : 1;     // InitializeHardware() succeeded 
+    BOOL                    m_fRegisteredWithBusDriver : 1; // SDHCDRegisterHostController() succeeded
+    BOOL                    m_fInterruptInitialized : 1;    // InterruptInitialize() succeeded
 }*PCSDHCBase;
 
 

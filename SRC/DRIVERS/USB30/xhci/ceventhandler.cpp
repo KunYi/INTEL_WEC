@@ -278,7 +278,17 @@ VOID CXhcdEventHandler::HandleCommandCompletion(COMMAND_EVENT_TRB *pEvent)
             m_pXhcdRing->Complete(&pVirtDev->cmdCompletion);
         }
         break;
-
+    case TRANSFER_BLOCK_EVALUATE_CTX:
+        if(pVirtDev != NULL)
+        {
+            if(HandleCommandWaitList(pVirtDev, pEvent))
+            {
+                break;
+            }
+            pVirtDev->uCmdStatus = COMPLETION_STATUS(pEvent->uStatus);
+            m_pXhcdRing->Complete(&pVirtDev->cmdCompletion);
+        }
+        break;
     case TRANSFER_BLOCK_ADDRESS:
         if(pVirtDev != NULL)
         {

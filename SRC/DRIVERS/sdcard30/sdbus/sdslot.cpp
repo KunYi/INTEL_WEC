@@ -109,9 +109,8 @@ BOOL CSDBusReqAsyncQueue::Detach()
             pCur->DeRef();
             pCur = pNext;
         }
-        m_pQueueListLast = m_pQueueListHead = NULL ;;
+        m_pQueueListLast = m_pQueueListHead = NULL ;
         Unlock();
-
     }
     return TRUE;
 }
@@ -184,9 +183,11 @@ SD_API_STATUS CSDBusReqAsyncQueue::QueueBusRequest(CSDBusRequest * pRequest)
 
     return status;
 };
+
 CSDBusRequest * CSDBusReqAsyncQueue::CompleteRequest(CSDBusRequest * pRequest,SD_API_STATUS Status)
 {
     CSDBusRequest * pReturn = NULL;
+    BOOL          fQueueListEmpty;
 
     if(!m_pQueueListHead) {
         //This is a response from a fast path request that did not complete in time.
@@ -212,6 +213,10 @@ CSDBusRequest * CSDBusReqAsyncQueue::CompleteRequest(CSDBusRequest * pRequest,SD
         return pReturn;
     }
 
+    // We keep the queue status in a local variable since m_pQueueListHead can be updated from ::QueueBusRequest ()
+    // immediatly after releasing lock. This may lead to multiple submission of same request.
+    fQueueListEmpty = false;
+
     pRequest->SetStatus(Status);
     if (!SD_API_SUCCESS(Status) && pRequest->IsRequestNeedRetry()) {
         //we need to resubmit this request. keep it in queue for now
@@ -228,6 +233,7 @@ CSDBusRequest * CSDBusReqAsyncQueue::CompleteRequest(CSDBusRequest * pRequest,SD
         m_pQueueListHead = pNext;
         if (m_pQueueListHead == NULL) {
             m_pQueueListLast = NULL;
+            fQueueListEmpty = true;
         }
         Unlock();
         pReturn = pRequest;
@@ -236,7 +242,7 @@ CSDBusRequest * CSDBusReqAsyncQueue::CompleteRequest(CSDBusRequest * pRequest,SD
     }
 
     //check the queue to sumbit the request at the head
-    while (SlotHasRequest() == FALSE && m_pQueueListHead != NULL){
+    while (SlotHasRequest() == FALSE && m_pQueueListHead != NULL && !fQueueListEmpty){
         SD_API_STATUS status = SubmitRequestToHC(m_pQueueListHead);
 
         // 1) if the request failed and does not need
@@ -252,6 +258,7 @@ CSDBusRequest * CSDBusReqAsyncQueue::CompleteRequest(CSDBusRequest * pRequest,SD
             m_pQueueListHead = pNext;
             if (m_pQueueListHead == NULL) {
                 m_pQueueListLast = NULL;
+                fQueueListEmpty = true;
             }
             Unlock();
 
@@ -344,7 +351,11 @@ CSDSlot::CSDSlot(DWORD dwSlotIndex, CSDHost& sdHost)
     m_SlotState = SlotInactive;
     m_curHCOwned = NULL;
     m_lcurHCLockCount = NULL;
+    m_dwThreadPrority = -1;
+    m_FastPathThreshHold = -1;
+    m_FastPathNoDirectRet = -1;
     m_Flags = 0 ;
+    m_device0Type = Device_Unknown;
 }
 CSDSlot::~CSDSlot()
 {
@@ -362,13 +373,22 @@ BOOL CSDSlot::Init()
     m_SlotState = SlotInactive;
     m_fEnablePowerControl = TRUE;
     m_AllocatedPower = 0;
-    DWORD dwThreadPrority = CSDHostContainer::RegValueDWORD(SDCARD_THREAD_PRIORITY_KEY,DEFAULT_THREAD_PRIORITY);
-    if (!CSDWorkItem::Init(dwThreadPrority + 1) || !CSDBusReqAsyncQueue::Init()) {
+    if (m_dwThreadPrority == -1)
+    {
+        m_dwThreadPrority = CSDHostContainer::RegValueDWORD(SDCARD_THREAD_PRIORITY_KEY,DEFAULT_THREAD_PRIORITY);
+    }
+    if (!CSDWorkItem::Init(m_dwThreadPrority - 5) || !CSDBusReqAsyncQueue::Init()) {
         DEBUGMSG(SDCARD_ZONE_ERROR, (TEXT("CSDSlot::Init: CSDWorkItem::Init or CSDBusReqAsyncQueue::Init Failed  \n")));
         return FALSE;
     }
-    m_FastPathThreshHold =  CSDHostContainer::RegValueDWORD(SDCARD_PASTPATH_THRESHOLD,DEFAULT_PASTPATH_THRESHOLD);
-    m_FastPathNoDirectRet = CSDHostContainer::RegValueDWORD(SDCARD_FASTPATH_NODIRECTRET_KEY, 0);
+    if (m_FastPathThreshHold == -1)
+    {
+        m_FastPathThreshHold =  CSDHostContainer::RegValueDWORD(SDCARD_PASTPATH_THRESHOLD,DEFAULT_PASTPATH_THRESHOLD);
+    }
+    if (m_FastPathNoDirectRet == -1)
+    {
+        m_FastPathNoDirectRet = CSDHostContainer::RegValueDWORD(SDCARD_FASTPATH_NODIRECTRET_KEY, 0);
+    }
     return TRUE;
 };
 SD_API_STATUS   CSDSlot::SubmitRequestToHC(CSDBusRequest * pRequest)
@@ -376,8 +396,14 @@ SD_API_STATUS   CSDSlot::SubmitRequestToHC(CSDBusRequest * pRequest)
     SD_API_STATUS status = SD_API_STATUS_UNSUCCESSFUL;
     m_SdHost.SDHCAccessLock();
     DEBUGMSG(SDCARD_ZONE_0,(TEXT("SubmitRequestToHC(%x)\n"),pRequest));
-    if (m_fAttached && SD_API_SUCCESS(CheckSlotReady()) && m_SdHost.IsAttached() &&
-            m_curHCOwned==NULL && pRequest!=NULL) {
+    if (
+        m_fAttached && 
+        SD_API_SUCCESS(CheckSlotReady()) &&
+        m_SdHost.IsAttached() &&
+        m_curHCOwned==NULL && 
+        pRequest!=NULL
+        ) 
+    {
         m_curHCOwned = pRequest;
         m_lcurHCLockCount = 0 ;
         status = m_SdHost.BusRequestHandler(m_dwSlotIndex,pRequest);
@@ -390,12 +416,23 @@ SD_API_STATUS   CSDSlot::SubmitRequestToHC(CSDBusRequest * pRequest)
             else
                 break;
         }
-        if ((status != SD_API_STATUS_PENDING) && (m_curHCOwned == pRequest)) { // This is has been completed.
+        if ((status != SD_API_STATUS_PENDING) && (m_curHCOwned == pRequest)) 
+        {
             m_curHCOwned = NULL;
+            if (m_pQueueListHead == pRequest)
+            {
+                CompleteRequest(pRequest, status );
+            }
         }
     }
-    else {
-        ASSERT(FALSE);
+    else 
+    {
+        //Indicate that this request has been completed.
+        if (pRequest != NULL)
+        {
+            m_curHCOwned = NULL;
+            pRequest->CompleteBusRequest(status);
+        }
     }
     m_SdHost.SDHCAccessUnlock();
     return status;
@@ -431,7 +468,7 @@ CSDDevice * CSDSlot::RemoveDevice(DWORD dwIndex )
     }
     return pReturn;
 }
-CSDDevice * CSDSlot::InsertDevice(DWORD dwIndex,CSDDevice * pObject)
+CSDDevice * CSDSlot::InsertDevice(DWORD dwIndex, CSDDevice * pObject)
 {
     CSDDevice*  pReturn = NULL;
     if( pObject )
@@ -470,131 +507,86 @@ BOOL CSDSlot::Detach()
     return fRet;
 }
 
-
-
 BOOL CSDSlot::HandleAddDevice()
 {
+    SD_API_STATUS status = SD_API_STATUS_UNSUCCESSFUL;
+    SD_ADAPTIVE_CONTROL         AdaptiveControl = {0};
+
     // Create Function Zero.
-    ASSERT(m_pFuncDevice[0]==NULL) ;
-    VERIFY(CSDBusReqAsyncQueue::Init());
-    CSDDevice * psdDevice = new CSDDevice(0, *this);
-    SD_API_STATUS status = SD_API_STATUS_SUCCESS;
-    if (psdDevice && psdDevice->Init() && InsertDevice(0,psdDevice)) {
-        CSDDevice * psdDeviceCur = GetFunctionDevice(0);
-        if (psdDeviceCur ) {
-            psdDeviceCur->Attach();
-            m_SlotState = SlotIdle ;
-            DelayForPowerUp();
-            // Default Value.
-            memset(&m_SlotInterfaceEx,0,sizeof(m_SlotInterfaceEx));
-            m_SlotInterfaceEx.ClockRate = SD_DEFAULT_CARD_ID_CLOCK_RATE;
-            DWORD dwNumOfFunc = 0;
-            if (SD_API_SUCCESS(SDSetCardInterfaceForSlot(&m_SlotInterfaceEx)) &&
-                    SD_API_SUCCESS(psdDeviceCur->DetectSDCard(dwNumOfFunc))) {
-                m_AllocatedPower = 0 ;
-                if (SD_API_SUCCESS ( psdDeviceCur->GetCardRegisters()) &&
-                        SD_API_SUCCESS(psdDeviceCur->DeactivateCardDetect())&&
-                        SD_API_SUCCESS(psdDeviceCur->SDGetSDIOPnpInformation(*psdDeviceCur)) &&
-                        SD_API_SUCCESS(EnumMultiFunction(*psdDeviceCur,dwNumOfFunc ))) {
-
-                    for (DWORD dwIndex = 0; dwIndex<dwNumOfFunc && SD_API_SUCCESS(status); dwIndex++) {
-                        CSDDevice * childDevice = GetFunctionDevice(dwIndex);
-                        if (childDevice) {
-                            status = childDevice->SelectCardInterface();
-                            ASSERT(SD_API_SUCCESS(status));
-                            childDevice->DeRef();
-                        }
-                        else
-                            ASSERT(FALSE);
-                    }
-
-                    if (SD_API_SUCCESS(status))
-                        status = SelectSlotInterface();
-                    ASSERT(SD_API_SUCCESS(status));
-
-                    //update high capacity info
-                    if(psdDeviceCur->GetDeviceType() == Device_SD_Memory
-                            || psdDeviceCur->GetDeviceType() == Device_MMC
-                            || psdDeviceCur->GetDeviceType() == Device_SD_Combo){
-                        m_SlotInterfaceEx.InterfaceModeEx.bit.sdHighCapacity =
-                            ((psdDeviceCur->IsHighCapacitySDMemory())?1: 0);
-                    }
-
-                    for (dwIndex = 0; dwIndex<dwNumOfFunc &&SD_API_SUCCESS(status); dwIndex++) {
-                        CSDDevice * childDevice = GetFunctionDevice(dwIndex);
-                        if (childDevice) {
-                            status = childDevice->SetCardInterface(&m_SlotInterfaceEx);
-                            ASSERT(SD_API_SUCCESS(status));
-                            childDevice->DeRef();
-                        }
-                        else
-                            ASSERT(FALSE);
-                    }
-
-                    status = SDSetCardInterfaceForSlot(&m_SlotInterfaceEx);
-                    ASSERT(SD_API_SUCCESS(status));
-                    DEBUGMSG(ZONE_ENABLE_INFO,(TEXT("The clock rate is set to %d"), m_SlotInterfaceEx.ClockRate));
-
-                    if (psdDeviceCur->GetDeviceType() == Device_SD_IO) { // Remove First Function.
-                        psdDeviceCur->SetDeviceType(Device_Unknown);
-                    }
-                    else if (psdDeviceCur->GetDeviceType() == Device_SD_Combo) { // Remove First Function.
-                        psdDeviceCur->SetDeviceType(Device_SD_Memory);
-                    }
-
-                    // If host is capable of supporting high speed, then try put the card in
-                    // high speed mode
-                    if (Capabilities & SD_SLOT_HIGH_SPEED_CAPABLE) {
-                       SwitchtoHighSpeed();
-                    }
-
-                    // update the clockrate for each device to maintain the consistency
-                    for (dwIndex = 0; dwIndex<dwNumOfFunc &&SD_API_SUCCESS(status); dwIndex++) {
-                        CSDDevice * childDevice = GetFunctionDevice(dwIndex); //Increments the reference count
-                        if (childDevice) {
-                            childDevice->UpdateClockRate(m_SlotInterfaceEx.ClockRate);
-                            childDevice->DeRef(); //Decrement the reference count after updating the clock rate.
-                        }
-                    }
-
-                    // Try switch to 8bit mode for MMC
-                    // in MMC spec, we do this after clock rate is settled.
-                    if(psdDeviceCur->GetDeviceType() == Device_MMC) {
-                        if(psdDeviceCur->MMCSwitchto8BitBusWidth()){
-                            m_SlotInterfaceEx.InterfaceModeEx.bit.mmc8Bit = 1;
-                        }
-                    }
-
-                    if (SD_API_SUCCESS(status)) {
-                        m_SlotState = SlotInitFailed;
-                        for (dwIndex = 0; dwIndex<dwNumOfFunc; dwIndex++) {
-                            CSDDevice * childDevice = GetFunctionDevice(dwIndex);
-                            DEBUGMSG(ZONE_ENABLE_INFO,(TEXT("HandleAddDevice: LoadDevice type = %d, slot %d"),
-                                (childDevice!=NULL?childDevice->GetDeviceType():Device_Unknown),
-                                m_dwSlotIndex));
-                            if (childDevice && childDevice->GetDeviceType()!=Device_Unknown ) {
-                                status = childDevice->SDLoadDevice();
-                                ASSERT(SD_API_SUCCESS(status));
-                                childDevice->DeRef();
-                            }
-                        }
-                    }
-                }
-            }
-            psdDeviceCur->DeRef();
-        }
+    ASSERT(m_pFuncDevice[0]==NULL);
+    status = InitHardware(FALSE, m_device0Type);
+    if (SD_API_SUCCESS(status))
+    {
+        status = SDHCGetLocalAdaptiveControl_I(&AdaptiveControl);
+#if (CE_MAJOR_VER < 8)
+        AdaptiveControl.bAdapterRemoved = FALSE;
+#else
+        AdaptiveControl.nonRegistryAdaptiveControl.bAdapterRemoved = FALSE;
+#endif
+        status = SDHCUpcallSetAdaptiveControl_I(&AdaptiveControl);
     }
-    else if (psdDevice) {
-        delete psdDevice;
-    }
-    return TRUE;
+    return (SD_API_SUCCESS(status));
 }
+
+BOOL CSDSlot::HandleResumeDevice()
+{
+    SD_API_STATUS               status          = SD_API_STATUS_SUCCESS;
+    SD_ADAPTIVE_CONTROL         AdaptiveControl = {0};
+    CSDDevice*                  pCurrentDevice  = NULL;
+
+    status = SDHCGetLocalAdaptiveControl_I(&AdaptiveControl);
+#if (CE_MAJOR_VER < 8)
+    AdaptiveControl.bAdapterRemoved = TRUE;
+#else
+    AdaptiveControl.nonRegistryAdaptiveControl.bAdapterRemoved = TRUE;
+#endif
+    status = SDHCUpcallSetAdaptiveControl_I(&AdaptiveControl);
+
+    CSDWorkItem::ReStart();
+
+    VERIFY(CSDBusReqAsyncQueue::Detach());
+    VERIFY(CSDBusReqAsyncQueue::Init());
+
+    m_SdHost.SDHCAccessLock();
+    pCurrentDevice = GetFunctionDevice(0);
+    if (pCurrentDevice) 
+    {
+        status = pCurrentDevice->HandleResumeDevice_I(0);
+        ASSERT(SD_API_SUCCESS(status));
+        pCurrentDevice->DeRef();
+    }
+    m_SdHost.SDHCAccessUnlock();
+
+    if(!SD_API_SUCCESS(status))
+    {
+        status = InitHardware(TRUE, m_device0Type);
+    }
+
+    return status;
+}
+
+BOOL CSDSlot::HandleSuspendDevice()
+{
+    return CSDWorkItem::Stop();
+}
+
 BOOL CSDSlot::HandleRemoveDevice()
 {
+    SD_API_STATUS               status          = SD_API_STATUS_UNSUCCESSFUL;
+    SD_ADAPTIVE_CONTROL         AdaptiveControl = {0};    
+
+    status = SDHCGetLocalAdaptiveControl_I(&AdaptiveControl);
+#if (CE_MAJOR_VER < 8)
+    AdaptiveControl.bAdapterRemoved = TRUE;
+#else
+    AdaptiveControl.nonRegistryAdaptiveControl.bAdapterRemoved = TRUE;
+#endif
+    status = SDHCUpcallSetAdaptiveControl_I(&AdaptiveControl);
+
     CSDBusReqAsyncQueue::Detach();
     RemoveAllDevice();
     ASSERT(m_curHCOwned==NULL);
-    return TRUE;
+    return SD_API_SUCCESS(status);
 }
 BOOL CSDSlot::HandleDeviceInterrupting()
 {
@@ -659,15 +651,15 @@ BOOL CSDSlot::HandleDeviceInterrupting()
     GetHost().SlotOptionHandler(m_dwSlotIndex,SDHCDAckSDIOInterrupt,NULL,0);
     return TRUE;
 }
+
 // Enumerate multi function card.
 SD_API_STATUS CSDSlot::EnumMultiFunction(CSDDevice& psdDevice0,DWORD dwNumOfFunc )
 {
-    SD_API_STATUS               status;             // status
-    UCHAR                       currentFunction;    // current function
-
+    SD_API_STATUS               status = SD_API_STATUS_UNSUCCESSFUL;    // status
+    UCHAR                       currentFunction = 1;                    // current function
 
     // check the base type for multifunction or combo device
-    if (Device_SD_IO ==psdDevice0.GetDeviceType() || Device_SD_Combo == psdDevice0.GetDeviceType()) {
+    if (Device_SD_IO == psdDevice0.GetDeviceType() || Device_SD_Combo == psdDevice0.GetDeviceType()) {
         ASSERT(dwNumOfFunc >= 2);
         // set up functions 1..7, if present for the parent device
         for (currentFunction = 1;currentFunction < dwNumOfFunc; currentFunction++) {
@@ -697,14 +689,18 @@ SD_API_STATUS CSDSlot::EnumMultiFunction(CSDDevice& psdDevice0,DWORD dwNumOfFunc
         return SD_API_STATUS_SUCCESS;
     }
 }
+
 SD_API_STATUS CSDSlot::CreateChildDevice(SDCARD_DEVICE_TYPE sdCard_DeviceType, DWORD dwFunctionIndex, CSDDevice& psdDevice0)
 {
     SD_API_STATUS status = SD_API_STATUS_INVALID_PARAMETER;
     CSDDevice*  pNewDevice = new CSDDevice(dwFunctionIndex,*this);
-    if (pNewDevice && pNewDevice->Init() && InsertDevice(dwFunctionIndex, pNewDevice)) {
+    if (pNewDevice && pNewDevice->Init() && InsertDevice(dwFunctionIndex, pNewDevice)) 
+    {
         CSDDevice * psdDevice = GetFunctionDevice(dwFunctionIndex);
-        if (psdDevice) {
-            if (m_SdHost.IsAttached()) {
+        if (psdDevice) 
+        {
+            if (m_SdHost.IsAttached()) 
+            {
                 psdDevice->Attach();
                 psdDevice->CopyContentFromParent(psdDevice0);
                 psdDevice->SetDeviceType(sdCard_DeviceType);
@@ -712,9 +708,9 @@ SD_API_STATUS CSDSlot::CreateChildDevice(SDCARD_DEVICE_TYPE sdCard_DeviceType, D
             psdDevice->DeRef();
             status = SD_API_STATUS_SUCCESS ;
         }
-
     }
-    else {
+    else
+    {
         ASSERT(FALSE);
         if (pNewDevice)
             delete pNewDevice;
@@ -723,6 +719,7 @@ SD_API_STATUS CSDSlot::CreateChildDevice(SDCARD_DEVICE_TYPE sdCard_DeviceType, D
     ASSERT(SD_API_SUCCESS(status));
     return status;
 }
+
 BOOL    CSDSlot::CancelRequestFromHC(CSDBusRequest * pRequest)
 {
     BOOL fRetrun = FALSE;
@@ -739,7 +736,9 @@ BOOL    CSDSlot::CompleteRequestFromHC(CSDBusRequest * pRequest,SD_API_STATUS st
     BOOL fRetrun = FALSE;
     m_SdHost.SDHCAccessLock();
     DEBUGMSG(SDCARD_ZONE_0,(TEXT("CompleteRequestFromHC(%x,%x)\n"),pRequest,status));
-    if ( m_curHCOwned && pRequest == m_curHCOwned) {
+    if (m_curHCOwned && 
+        pRequest == m_curHCOwned) 
+    {
         m_curHCOwned = NULL;
         m_lcurHCLockCount = 0 ;
         CompleteRequest(pRequest, status );
@@ -774,6 +773,204 @@ void  CSDSlot::SDHCDUnlockRequest_I(PSD_BUS_REQUEST  hReques)
     m_SdHost.SDHCAccessUnlock();
 };
 
+void CSDSlot::SDHCUpdateCurrentHCOwned_I(PSD_BUS_REQUEST  pRequest)
+{
+    m_SdHost.SDHCAccessLock();
+    DEBUGMSG(SDCARD_ZONE_0,(TEXT("SDHCUpdateCurrentHCOwned_I(%x), m_curHCOwned=%x\n"),pRequest,pRequest));
+    CSDBusRequest * pBusRequest = (CSDBusRequest *) pRequest;
+    m_curHCOwned = pBusRequest;
+    m_lcurHCLockCount = 0 ;
+    m_SdHost.SDHCAccessUnlock();
+}
+
+SD_API_STATUS CSDSlot::SDHCCheckHardware_I(PSD_CARD_STATUS  pCardStatus)
+{
+    SD_API_STATUS   status          = SD_API_STATUS_UNSUCCESSFUL;
+    DWORD           dwIndex         = 0;
+    CSDDevice       *childDevice    = NULL;
+    DWORD           dwNumOfFunc     = GetNumOfFunctionDevice();
+
+    m_SdHost.SDHCAccessLock();
+    for (dwIndex = 0; dwIndex < dwNumOfFunc; dwIndex++)
+    {
+        childDevice = GetFunctionDevice(dwIndex);
+
+        if (childDevice && childDevice->GetDeviceType() != Device_Unknown ) 
+        {
+            DEBUGMSG(ZONE_ENABLE_INFO,(TEXT("SDHCCheckHardware_I: type = %d, slot %d"),
+            (childDevice != NULL ? childDevice->GetDeviceType(): Device_Unknown),
+            m_dwSlotIndex));
+
+            status = childDevice->SDIOCheckHardware_I(pCardStatus);
+            ASSERT(SD_API_SUCCESS(status));
+        }
+        if (childDevice)
+        {
+            childDevice->DeRef();
+        }
+    }
+    m_SdHost.SDHCAccessUnlock();
+    return status;
+}
+
+SD_API_STATUS CSDSlot::SDHCUpcallSetAdaptiveControl_I(PSD_ADAPTIVE_CONTROL  pAdaptiveControl)
+{
+    SD_API_STATUS   status          = SD_API_STATUS_SUCCESS;
+    DWORD           dwIndex         = 0;
+    CSDDevice       *childDevice    = NULL;
+    DWORD           dwNumOfFunc     = GetNumOfFunctionDevice();
+
+    if(!pAdaptiveControl)
+    {
+        RETAILMSG(1, (TEXT("Adaptive Control Cannot be set to a null pointer")));
+        status  = SD_API_STATUS_INVALID_PARAMETER;
+        return status;
+    }
+
+    m_SdHost.SDHCAccessLock();
+
+    for (dwIndex = 0; dwIndex < dwNumOfFunc; dwIndex++)
+    {
+        childDevice = GetFunctionDevice(dwIndex);
+        status = childDevice->SDIOSetAdaptiveControl_I(pAdaptiveControl);
+
+        if (childDevice && childDevice->GetDeviceType() != Device_Unknown ) 
+        {
+            DEBUGMSG(ZONE_ENABLE_INFO,(TEXT("SDHCUpcallSetAdaptiveControl_I: type = %d, slot %d"),
+            (childDevice != NULL ? childDevice->GetDeviceType(): Device_Unknown),
+            m_dwSlotIndex));
+
+            status = childDevice->SDIOUpcallSetAdaptiveControl_I(pAdaptiveControl);
+            ASSERT(SD_API_SUCCESS(status));
+        }
+        if (childDevice)
+        {
+            childDevice->DeRef();
+        }
+    }
+    m_SdHost.SDHCAccessUnlock();
+    return status;
+}
+
+SD_API_STATUS CSDSlot::SDHCUpcallGetAdaptiveControl_I(PSD_ADAPTIVE_CONTROL  pAdaptiveControl)
+{
+    SD_API_STATUS   status          = SD_API_STATUS_SUCCESS;
+    DWORD           dwIndex         = 0;
+    CSDDevice       *childDevice    = NULL;
+    DWORD           dwNumOfFunc     = GetNumOfFunctionDevice();
+
+    if(!pAdaptiveControl)
+    {
+        RETAILMSG(1, (TEXT("Adaptive Control Cannot be set to a null pointer")));
+        status  = SD_API_STATUS_INVALID_PARAMETER;
+        return status;
+    }
+
+    m_SdHost.SDHCAccessLock();
+
+    for (dwIndex = 0; dwIndex < dwNumOfFunc; dwIndex++)
+    {
+        childDevice = GetFunctionDevice(dwIndex);
+
+        if (childDevice && childDevice->GetDeviceType() != Device_Unknown ) 
+        {
+            DEBUGMSG(ZONE_ENABLE_INFO,(TEXT("SDHCUpcallGetAdaptiveControl_I: type = %d, slot %d"),
+            (childDevice != NULL ? childDevice->GetDeviceType(): Device_Unknown),
+            m_dwSlotIndex));
+
+            status = childDevice->SDIOUpcallGetAdaptiveControl_I(pAdaptiveControl);
+            ASSERT(SD_API_SUCCESS(status));
+        }
+        if (childDevice)
+        {
+            childDevice->DeRef();
+        }
+    }
+    m_SdHost.SDHCAccessUnlock();
+    return status;
+}
+
+SD_API_STATUS CSDSlot::SDHCGetLocalAdaptiveControl_I(PSD_ADAPTIVE_CONTROL  pAdaptiveControl)
+{
+    SD_API_STATUS   status          = SD_API_STATUS_SUCCESS;
+    DWORD           dwIndex         = 0;
+    CSDDevice       *childDevice    = NULL;
+    DWORD           dwNumOfFunc     = GetNumOfFunctionDevice();
+
+    if(!pAdaptiveControl)
+    {
+        RETAILMSG(1, (TEXT("Adaptive Control Cannot be set to a null pointer")));
+        status  = SD_API_STATUS_INVALID_PARAMETER;
+        return status;
+    }
+
+    m_SdHost.SDHCAccessLock();
+    for (dwIndex = 0; dwIndex < dwNumOfFunc; dwIndex++)
+    {
+        childDevice = GetFunctionDevice(dwIndex);
+
+        if (childDevice && childDevice->GetDeviceType() != Device_Unknown ) 
+        {
+            DEBUGMSG(ZONE_ENABLE_INFO,(TEXT("SDHCGetLocalAdaptiveControl_I: type = %d, slot %d"),
+            (childDevice != NULL ? childDevice->GetDeviceType(): Device_Unknown),
+            m_dwSlotIndex));
+
+            status = childDevice->SDIOGetAdaptiveControl_I(pAdaptiveControl);
+        }
+        if (childDevice)
+        {
+            childDevice->DeRef();
+        }
+    }
+    m_SdHost.SDHCAccessUnlock();
+    return status;
+}
+
+SD_API_STATUS CSDSlot::SDHCFreeAllOutStandingRequests_I()
+{
+    SD_API_STATUS   status          = SD_API_STATUS_SUCCESS;
+    DWORD           dwIndex         = 0;
+    CSDDevice       *childDevice    = NULL;
+    DWORD           dwNumOfFunc     = GetNumOfFunctionDevice();
+
+    m_SdHost.SDHCAccessLock();
+    for (dwIndex = 0; dwIndex < dwNumOfFunc; dwIndex++)
+    {
+        childDevice = GetFunctionDevice(dwIndex);
+
+        if (childDevice && childDevice->GetDeviceType() != Device_Unknown ) 
+        {
+            DEBUGMSG(ZONE_ENABLE_INFO,(TEXT("SDHCFreeAllOutStandingRequests_I: type = %d, slot %d"),
+            (childDevice != NULL ? childDevice->GetDeviceType(): Device_Unknown),
+            m_dwSlotIndex));
+
+            status = childDevice->SDFreeAllOutStandingRequests_I();
+        }
+        if (childDevice)
+        {
+            childDevice->DeRef();
+        }
+    }
+    m_SdHost.SDHCAccessUnlock();
+    return status;
+}
+
+SD_API_STATUS 
+CSDSlot::SDHCHandleResetDevice_I()
+{
+    SD_API_STATUS   status      = SD_API_STATUS_UNSUCCESSFUL;
+    CSDDevice*      psdDevice   = NULL;
+
+    m_SlotLock.Lock();
+    psdDevice = GetFunctionDevice(0);
+    // for each device set it's card interface
+    if (psdDevice) {
+        psdDevice->HandleResetDevice_I(0, m_device0Type);
+        psdDevice->DeRef();
+    }
+    m_SlotLock.Unlock();
+    return status;
+}
 
 ///////////////////////////////////////////////////////////////////////////////
 // This routine is calling from seperate working thread.
@@ -819,6 +1016,9 @@ VOID CSDSlot::SlotStateChange(SD_SLOT_EVENT Event)
       case DeviceInterrupting: // We should do interrupt callback at SDHC IST.
       case DeviceInserted:
       case DeviceEjected:
+        // post this message to the work item for each slot
+        PostEvent(Event);
+        break;
       case SlotDeselectRequest:
       case SlotSelectRequest:
       case SlotResetRequest:
@@ -827,6 +1027,13 @@ VOID CSDSlot::SlotStateChange(SD_SLOT_EVENT Event)
         break;
       case BusRequestComplete:
         ASSERT(FALSE);
+        break;
+      //Don't Do these work items asynchronously
+      case DeviceSuspended:
+        RETAILMSG (1, (L"CSDSlot::SlotStateChange : DeviceSuspended - unsupported in asynchronous mode\n"));
+        break;
+      case DeviceResumed:
+        RETAILMSG (1, (L"CSDSlot::SlotStateChange : DeviceResumed - unsupported in asynchronous mode\n"));
         break;
       default:
         DEBUGCHK(FALSE);
@@ -869,7 +1076,7 @@ SD_API_STATUS CSDSlot::SDSetCardInterfaceForSlot(PSD_CARD_INTERFACE_EX pSetting)
 
     origClockSetting = pSetting->ClockRate;
 
-    status = m_SdHost.SlotSetupInterface(m_dwSlotIndex,pSetting);
+    status = m_SdHost.SlotSetupInterface(m_dwSlotIndex, pSetting);
 
     if (SD_API_SUCCESS(status)) {
         if (origClockSetting != pSetting->ClockRate){
@@ -1039,13 +1246,14 @@ BOOL CSDSlot::SDSlotDisableSDIOInterrupts()
     m_SlotLock.Unlock();
     return fRet;
 }
+
 BOOL CSDSlot::HandleSlotSelectDeselect(SD_SLOT_EVENT SlotEvent)
 {
-    SD_API_STATUS          status = SD_API_STATUS_SUCCESS;
-    SD_CARD_INTERFACE_EX   CurrentSlotInterface;
-
+    SD_API_STATUS                   status                  = SD_API_STATUS_SUCCESS;
+    SD_CARD_INTERFACE_EX            CurrentSlotInterface;
 
     DbgPrintZo(SDBUS_ZONE_DEVICE, (TEXT("CSDSlot: HandleSlotSelectDeselect++: %d \n"),SlotEvent));
+    
     // Deselect the card
     if (m_SlotState != SlotDeselected &&
             (SlotEvent == SlotResetRequest || SlotEvent == SlotDeselectRequest)) {
@@ -1053,7 +1261,8 @@ BOOL CSDSlot::HandleSlotSelectDeselect(SD_SLOT_EVENT SlotEvent)
         // Update RCA for all devices, start from parent device
         for (DWORD dwIndex=0; dwIndex <= SD_MAXIMUM_DEVICE_PER_SLOT && SD_API_SUCCESS(status); dwIndex++) {
             CSDDevice * pCurrentDevice = GetFunctionDevice(dwIndex);
-            if (pCurrentDevice != NULL) {
+            if (pCurrentDevice != NULL) 
+            {
                 status = pCurrentDevice->HandleDeviceSelectDeselect(SlotEvent, FALSE);
                 if (SD_API_SUCCESS(status)) {
                     pCurrentDevice->NotifyClient(SDCardDeselected);
@@ -1117,7 +1326,6 @@ BOOL CSDSlot::HandleSlotSelectDeselect(SD_SLOT_EVENT SlotEvent)
                     pDevice->NotifyClient(SDCardSelected);
                     pDevice->DeRef();
                 }
-
             }
         }
     }
@@ -1125,7 +1333,6 @@ BOOL CSDSlot::HandleSlotSelectDeselect(SD_SLOT_EVENT SlotEvent)
     DbgPrintZo(SDBUS_ZONE_DEVICE, (TEXT("SDBusDriver: HandleSlotSelectDeselect--status =%X\n"),status));
     return (SD_API_SUCCESS(status));
 }
-
 
 ///////////////////////////////////////////////////////////////////////////////
 //  SwitchtoHighSpeed - Switch the card to high speed mode
@@ -1221,7 +1428,7 @@ BOOL CSDSlot::SwitchtoHighSpeed()
 
         goto Done;
     }
-    // HighSpeed bit is enabled, should try to enable uhs 
+
     DbgPrintZo(SDBUS_ZONE_DEVICE,
         (TEXT("Boost slot to expected clock rate %d succeeded, current clockrate is %d\n"),
         ExpectedSlotClockRate, m_SlotInterfaceEx.ClockRate));
@@ -1238,3 +1445,344 @@ Done:
 
 }
 
+SD_API_STATUS CSDSlot::ReInitMultiFunction(CSDDevice& psdDevice0,DWORD dwNumOfFunc )
+{
+    SD_API_STATUS               status              = SD_API_STATUS_UNSUCCESSFUL;    // status
+    UCHAR                       currentFunction     = 1;                    // current function
+    SDCARD_DEVICE_TYPE          sdCard_DeviceType   = psdDevice0.GetDeviceType();
+    CSDDevice*                  pChildDevice        = NULL;
+
+    // check the base type for multifunction or combo device
+    if (Device_SD_IO == sdCard_DeviceType || Device_SD_Combo == sdCard_DeviceType) 
+    {
+        ASSERT(dwNumOfFunc >= 2);
+        // set up functions 1..7, if present for the parent device
+        for (currentFunction = 1; currentFunction < dwNumOfFunc; currentFunction++) 
+        {
+            pChildDevice = GetFunctionDevice(currentFunction);
+            if (pChildDevice) 
+            {
+                if (m_SdHost.IsAttached()) 
+                {
+                    pChildDevice->Attach();
+                    pChildDevice->CopyContentFromParent(psdDevice0);
+                    pChildDevice->SetDeviceType(sdCard_DeviceType);
+                }
+                status = pChildDevice->SDGetSDIOPnpInformation(psdDevice0);
+                if (SD_API_SUCCESS(status)) {
+                    pChildDevice->SetupWakeupSupport();
+                }
+                pChildDevice->DeRef();
+            }
+            else 
+            {
+                status = SD_API_STATUS_UNSUCCESSFUL;
+            }
+        }
+        if (!SD_API_SUCCESS(status))
+        {
+            ASSERT(FALSE);
+            return status;
+        }
+        else
+        {
+            return SD_API_STATUS_SUCCESS;
+        }
+    }
+    else 
+    {
+        return SD_API_STATUS_SUCCESS;
+    }
+}
+
+BOOL
+CSDSlot::CreateNewDevice(CSDDevice **ppsdDevice)
+{
+    BOOL        bSuccess        = FALSE;
+    CSDDevice   *psdDevice      = NULL;
+
+    VERIFY(CSDBusReqAsyncQueue::Init());
+
+    *ppsdDevice                 = NULL;
+    psdDevice                   = new CSDDevice(0, *this);
+
+    if (psdDevice && psdDevice->Init() && InsertDevice(0,psdDevice)) 
+    {
+        *ppsdDevice = GetFunctionDevice(0);
+        bSuccess = *ppsdDevice != NULL ? TRUE : FALSE;
+    }
+    else if (psdDevice) 
+    {
+        delete psdDevice;
+    }
+
+    return bSuccess;
+}
+
+SD_API_STATUS 
+CSDSlot::InitHardware(BOOL bReuse, SDCARD_DEVICE_TYPE device0Type)
+{
+    SD_API_STATUS       status      = SD_API_STATUS_UNSUCCESSFUL;
+    DWORD               dwIndex     = 0;
+    CSDDevice           *psdDevice  = NULL;
+    DWORD               dwNumOfFunc = 0;
+    PSDCARD_DEVICE_TYPE pDeviceType = NULL;
+
+    if (bReuse == TRUE)
+    {
+        psdDevice = GetFunctionDevice(0);
+    }
+    else if (!CreateNewDevice(&psdDevice))
+    {
+        goto EXIT;
+    }
+
+    if ( psdDevice )
+    {
+        psdDevice->Attach();
+        m_SlotState = SlotIdle;
+        DelayForPowerUp();
+        memset(&m_SlotInterfaceEx,0,sizeof(m_SlotInterfaceEx));
+        m_SlotInterfaceEx.ClockRate = SD_DEFAULT_CARD_ID_CLOCK_RATE;
+        
+        if (!SD_API_SUCCESS(SDSetCardInterfaceForSlot(&m_SlotInterfaceEx)))
+        {
+            goto DEREF;
+        }
+
+        //Added reset to help stabalize the initialization
+        //Note this only works if the card has been inserted before.
+        if (device0Type != Device_Unknown)
+        {
+            psdDevice->HandleResetDevice_I(0, device0Type);
+        }
+
+        if(!SD_API_SUCCESS(psdDevice->DetectSDCard(dwNumOfFunc)))
+        {
+            goto DEREF;
+        }
+
+        m_AllocatedPower = 0;
+
+        if (!SD_API_SUCCESS ( psdDevice->GetCardRegisters()))
+        {
+            goto DEREF;
+        }
+
+        if (!SD_API_SUCCESS(psdDevice->DeactivateCardDetect()))
+        {
+            goto DEREF;
+        }
+
+        if (!SD_API_SUCCESS(psdDevice->SDGetSDIOPnpInformation(*psdDevice)))
+        {
+            goto DEREF;
+        }
+
+        if (bReuse == TRUE)
+        {
+            if (!SD_API_SUCCESS(ReInitMultiFunction(*psdDevice, dwNumOfFunc)))
+            {
+                goto DEREF;
+            }
+        }
+        else
+        {
+            if (!SD_API_SUCCESS(EnumMultiFunction(*psdDevice, dwNumOfFunc)))
+            {
+                 goto DEREF;
+            }
+        }
+
+        //If it made it this far the status changes to successful
+        status = SD_API_STATUS_SUCCESS;
+
+        for (dwIndex = 0; dwIndex < dwNumOfFunc && SD_API_SUCCESS(status); dwIndex++) 
+        {
+            CSDDevice * childDevice = GetFunctionDevice(dwIndex);
+            if (childDevice) 
+            {
+                status = childDevice->SelectCardInterface();
+                ASSERT(SD_API_SUCCESS(status));
+                childDevice->DeRef();
+            }
+            else
+            {
+                ASSERT(FALSE);
+            }
+        }
+        if (!SD_API_SUCCESS(status))
+        {
+            goto DEREF;
+        }
+
+        status = SelectSlotInterface();
+        if (!SD_API_SUCCESS(status))
+        {
+            goto DEREF;
+        }
+
+        //update high capacity info
+        if  (
+            psdDevice->GetDeviceType() == Device_SD_Memory || 
+            psdDevice->GetDeviceType() == Device_MMC ||
+            psdDevice->GetDeviceType() == Device_SD_Combo
+            )
+        {
+            m_SlotInterfaceEx.InterfaceModeEx.bit.sdHighCapacity =
+                ((psdDevice->IsHighCapacitySDMemory()) ? 1: 0);
+        }
+
+        for (dwIndex = 0; dwIndex<dwNumOfFunc &&SD_API_SUCCESS(status); dwIndex++) 
+        {
+            CSDDevice * childDevice = GetFunctionDevice(dwIndex);
+            if (childDevice)
+            {
+                status = childDevice->SetCardInterface(&m_SlotInterfaceEx);
+                ASSERT(SD_API_SUCCESS(status));
+                childDevice->DeRef();
+            }
+            else
+                ASSERT(FALSE);
+        }                
+        if (!SD_API_SUCCESS(status))
+        {
+            goto DEREF;
+        }
+        
+        status = SDSetCardInterfaceForSlot(&m_SlotInterfaceEx);
+        if (!SD_API_SUCCESS(status))
+        {
+            goto DEREF;
+        }
+
+        DEBUGMSG(ZONE_ENABLE_INFO,(TEXT("The clock rate is set to %d"), m_SlotInterfaceEx.ClockRate));
+
+        //Save device0 type for the slot to be used later, before overwriting the device0 type
+        m_device0Type = psdDevice->GetDeviceType();
+
+        if (psdDevice->GetDeviceType() == Device_SD_IO) // Remove First Function.
+        {
+            psdDevice->SetDeviceType(Device_Unknown);
+        }
+        else if (psdDevice->GetDeviceType() == Device_SD_Combo) // Remove First Function.
+        { 
+            psdDevice->SetDeviceType(Device_SD_Memory);
+        }
+
+		DWORD clockRateOverride = psdDevice->GetClockRateOverride();
+		if ((clockRateOverride != -1) && (clockRateOverride <= SD_FULL_SPEED_RATE))
+		{
+			goto CLOCKRATEOVERRIDE; // if m_clockRateOverride is being used and it is not greater than SD_FULL_SPEED_RATE then skip SwitchtoHighSpeed
+		}
+
+        // If host is capable of supporting high speed, then try put the card in
+        // high speed mode
+        if (Capabilities & SD_SLOT_HIGH_SPEED_CAPABLE) 
+        {
+           SwitchtoHighSpeed();
+        }
+
+        // update the clockrate for each device to maintain the consistency
+        for (dwIndex = 0; dwIndex < dwNumOfFunc && SD_API_SUCCESS(status); dwIndex++) 
+        {
+            CSDDevice * childDevice = GetFunctionDevice(dwIndex); //Increments the reference count
+            if (childDevice) 
+            {
+                childDevice->UpdateClockRate(m_SlotInterfaceEx.ClockRate);
+                childDevice->DeRef(); //Decrement the reference count after updating the clock rate.
+            }
+        }
+
+        DEBUGMSG(ZONE_ENABLE_INFO,(TEXT("The clock rate is set to %d"), m_SlotInterfaceEx.ClockRate));
+
+CLOCKRATEOVERRIDE:
+
+        // Try switch to 8bit mode for MMC
+        // in MMC spec, we do this after clock rate is settled.
+        if (psdDevice->GetDeviceType() == Device_MMC) 
+        {
+            if (psdDevice->MMCSwitchto8BitBusWidth())
+            {
+                m_SlotInterfaceEx.InterfaceModeEx.bit.mmc8Bit = 1;
+            }
+        }
+
+        if (bReuse == FALSE)
+        {
+            status = LoadDevices(dwNumOfFunc);
+        }
+        else
+        {
+            status = ReInitDevices(dwNumOfFunc);
+        }
+        pDeviceType = &m_device0Type;
+#if (CE_MAJOR_VER < 8)
+        GetHost().SlotOptionHandler(m_dwSlotIndex, SDHCDPowerControlHandler, pDeviceType, sizeof(SDCARD_DEVICE_TYPE));
+#endif
+DEREF:
+        psdDevice->DeRef();
+    }
+EXIT:
+    return status;
+}
+
+SD_API_STATUS 
+CSDSlot::LoadDevices(DWORD dwNumOfFunc)
+{
+    DWORD           dwIndex         = 0;
+    CSDDevice       *childDevice    = NULL;
+    SD_API_STATUS   status          = SD_API_STATUS_UNSUCCESSFUL;
+
+    m_SlotState = SlotInitFailed;
+
+    for (dwIndex = 0; dwIndex < dwNumOfFunc; dwIndex++)
+    {
+        childDevice = GetFunctionDevice(dwIndex);
+
+        DEBUGMSG(ZONE_ENABLE_INFO,(TEXT("LoadDevice: type = %d, slot %d"),
+            (childDevice != NULL ? childDevice->GetDeviceType(): Device_Unknown),
+            m_dwSlotIndex));
+
+        if (childDevice && childDevice->GetDeviceType() != Device_Unknown ) 
+        {
+            status = childDevice->SDLoadDevice();
+            //ASSERT(SD_API_SUCCESS(status));
+        }
+        if (childDevice)
+        {
+            childDevice->DeRef();
+        }
+    }
+    return status;
+}
+
+SD_API_STATUS 
+CSDSlot::ReInitDevices(DWORD dwNumOfFunc)
+{
+    DWORD           dwIndex         = 0;
+    CSDDevice       *childDevice    = NULL;
+    SD_API_STATUS   status          = SD_API_STATUS_UNSUCCESSFUL;
+
+    m_SlotState = SlotInitFailed;
+
+    for (dwIndex = 0; dwIndex < dwNumOfFunc; dwIndex++)
+    {
+        childDevice = GetFunctionDevice(dwIndex);
+
+        DEBUGMSG(ZONE_ENABLE_INFO,(TEXT("LoadDevice: type = %d, slot %d"),
+            (childDevice != NULL ? childDevice->GetDeviceType(): Device_Unknown),
+            m_dwSlotIndex));
+
+        if (childDevice && childDevice->GetDeviceType() != Device_Unknown ) 
+        {
+            status = childDevice->SDReInitSlotDevice_I();
+            ASSERT(SD_API_SUCCESS(status));
+        }
+        if (childDevice)
+        {
+            childDevice->DeRef();
+        }
+    }
+    return status;
+}

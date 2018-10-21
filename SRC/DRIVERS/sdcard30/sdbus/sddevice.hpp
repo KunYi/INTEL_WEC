@@ -63,10 +63,18 @@
 #pragma once
 
 #include <CRefCon.h>
+#include <windot11.h>
+#include <bldver.h>
 #include "Sdbusdef.h"
 
 #include "sdbusdef.h"
 #include "sd3voltage.h"
+
+#if (CE_MAJOR_VER > 7)
+typedef DOT11_PUBLIC_ADAPTIVE_CTRL SD_ADAPTIVE_CONTROL;
+typedef PDOT11_PUBLIC_ADAPTIVE_CTRL PSD_ADAPTIVE_CONTROL;
+#endif
+
 // the card registers
 typedef struct _SDCARD_CARD_REGISTERS {
     union { 
@@ -167,6 +175,7 @@ public:
     BOOL GetUpdatedTranSpeedValue(UCHAR& Value);
     SDCARD_DEVICE_TYPE SetDeviceType(SDCARD_DEVICE_TYPE deviceType) { return m_DeviceType = deviceType; };
     SDCARD_DEVICE_TYPE GetDeviceType() { return m_DeviceType; };
+    DWORD GetClockRateOverride() { return m_clockRateOverride; };
     
     SD_API_STATUS DetectSDCard( DWORD& dwNumOfFunct);    
     SD_API_STATUS GetCardRegisters();
@@ -188,12 +197,22 @@ public:
     virtual SD_API_STATUS SDBusRequest_I(UCHAR Command,DWORD Argument,SD_TRANSFER_CLASS TransferClass, SD_RESPONSE_TYPE ResponseType,
         ULONG NumBlocks,ULONG BlockSize, PUCHAR pBuffer, PSD_BUS_REQUEST_CALLBACK pCallback, DWORD RequestParam,
         HANDLE *phRequest,DWORD Flags,DWORD cbSize=0, PPHYS_BUFF_LIST pPhysBuffList=NULL );
-    virtual VOID SDFreeBusRequest_I(HANDLE hRequest);
+    virtual SD_API_STATUS SDFreeBusRequest_I(HANDLE hRequest);
     virtual SD_API_STATUS SDBusRequestResponse_I(HANDLE hRequest, PSD_COMMAND_RESPONSE pSdCmdResp);
+    virtual SD_API_STATUS SDIOCheckHardware_I(PSD_CARD_STATUS pCardStatus);
+    virtual SD_API_STATUS SDIOSetAdaptiveControl_I(PSD_ADAPTIVE_CONTROL pAdaptiveControl);
+    virtual SD_API_STATUS SDIOGetAdaptiveControl_I(PSD_ADAPTIVE_CONTROL pAdaptiveControl);
+    virtual SD_API_STATUS SDIOUpcallSetAdaptiveControl_I(PSD_ADAPTIVE_CONTROL pAdaptiveControl);
+    virtual SD_API_STATUS SDIOUpcallGetAdaptiveControl_I(PSD_ADAPTIVE_CONTROL pAdaptiveControl);
+    virtual SD_API_STATUS SDFreeAllOutStandingRequests_I();
+    virtual SD_API_STATUS SDReInitSlotDevice_I();
+    virtual SD_API_STATUS HandleResetDevice_I(DWORD dwFunctNum, SDCARD_DEVICE_TYPE device0Type);
+    virtual SD_API_STATUS HandleResumeDevice_I(DWORD  dwFunctNum);
     virtual BOOL SDCancelBusRequest_I(HANDLE hRequest);
     virtual SD_API_STATUS SDIOConnectDisconnectInterrupt(PSD_INTERRUPT_CALLBACK pIsrFunction, BOOL Connect);
     virtual void HandleDeviceInterrupt();
-    VOID NotifyClient(SD_SLOT_EVENT_TYPE Event);
+
+    VOID NotifyClient(SD_SLOT_EVENT_TYPE eventType);
 
     VOID UpdateClockRate(ULONG ClockRate){m_CardInterfaceEx.ClockRate = ClockRate;};
     
@@ -299,6 +318,7 @@ protected:
     SD_DEVICE_SPEEDMODE     m_CurSpeedMode;         //the speed class that the card is at
     BOOL                    m_fMMCSectorAccessMode; //indicate MMC card can use sector mode or not
     DWORD                   m_dwOCR;                // OCR mode for the card
+
 protected:
     SD_API_STATUS SetCardPower(SDCARD_DEVICE_TYPE DeviceType,DWORD OperatingVoltageMask,BOOL SetHCPower);
     VOID GetInterfaceOverrides();
@@ -340,6 +360,16 @@ protected:
         }
     };
     CSDDevice& operator=(CSDDevice&);
+
+private:
+    SD_ADAPTIVE_CONTROL                     m_AdaptiveControl;          // the adaptive control settings
+    ULONG                                   m_totalPowerUpTime;         // total powerup time
+    ULONG                                   m_powerUpInterval;          // powerup interval
+    BOOL                                    m_overridesFound;           // indicate if we hava already seached for overrides
+    DWORD                                   m_clockRateOverride;        // clockrate override
+    DWORD                                   m_interfaceModeOverride;    // interface mode override
+    DWORD                                   m_fWakeOnSDIOInterrupts;
+
 };
 
 

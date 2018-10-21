@@ -21,7 +21,7 @@
 #include <windows.h>
 #include <nkintr.h>
 #include <ceddk.h>
-#include <pc.h>
+#include <pc_smp.h>
 #include <oal.h>
 #include <specstrings.h>
 

@@ -60,7 +60,6 @@ Notes:
 //
 
 #include <windows.h>
-#include "../../INC/types.h"
 #include <creg.hxx>
 
 #include <sdhcd.h>
@@ -75,6 +74,8 @@ Notes:
 
 #define SD_GET_IO_RW_DIRECT_RESPONSE_FLAGS(pResponse) (pResponse)->ResponseBuffer[SD_IO_R5_RESPONSE_FLAGS_BYTE_OFFSET]
 #define SD_GET_IO_RW_DIRECT_DATA(pResponse)           (pResponse)->ResponseBuffer[SD_IO_R5_RESPONSE_DATA_BYTE_OFFSET]
+#define TWO_SEC_TIMEOUT                     0x000007D0  // 2 second timeout
+#define FIVE_SEC_TIMEOUT                    0x00001388  // 5 second timeout
 
 
 DWORD CSDDevice::g_FuncRef = 0 ;
@@ -94,7 +95,7 @@ CSDDevice::CSDDevice(DWORD dwFunctionIndex, CSDSlot& sdSlot)
     m_fIsHandleCopied = FALSE;
     m_ClientName[0] = 0;
     m_ClientFlags = 0;
-    m_DeviceType=Device_Unknown;
+    m_DeviceType = Device_Unknown;
     m_pDeviceContext = NULL;
     m_pSlotEventCallBack = NULL;
     m_RelativeAddress = 0;
@@ -111,18 +112,32 @@ CSDDevice::CSDDevice(DWORD dwFunctionIndex, CSDSlot& sdSlot)
     m_dwCurSearchIndex = 0;
     m_dwCurFunctionGroup = 0 ;
 
+    m_overridesFound = FALSE;
+    m_totalPowerUpTime = -1;
+    m_powerUpInterval = -1;
+    m_clockRateOverride = -1;
+    m_interfaceModeOverride = -1;
+
     m_CurSpeedMode = UndefinedSpeedMode;
     m_dwOCR = 0;
-    
+
     InitializeCriticalSection(&m_csChildRequests);
-    
+
     for(int i = 0; i < SYNC_EVENTS_ARRAYSIZE; i++){
         m_SyncEventArray.hSyncEvents[i] = CreateEvent(NULL, TRUE, FALSE, NULL);
         ASSERT(m_SyncEventArray.hSyncEvents[i] != NULL);
         m_SyncEventArray.fEventsAvailability[i] = TRUE;
     }
 
-
+#if (CE_MAJOR_VER < 8)
+    m_AdaptiveControl.bAdapterRemoved = FALSE;
+    m_AdaptiveControl.bResetOnSuspendResume = TRUE;
+    m_AdaptiveControl.bPwrCtrlOnSuspendResume = FALSE;
+#else
+    m_AdaptiveControl.nonRegistryAdaptiveControl.bAdapterRemoved= FALSE;
+    m_AdaptiveControl.currentRegistryAdaptiveControl.bResetOnSuspendResume = TRUE;
+    m_AdaptiveControl.currentRegistryAdaptiveControl.bPwrCtrlOnSuspendResume = FALSE;
+#endif
 }
 CSDDevice::~CSDDevice()
 {
@@ -158,12 +173,13 @@ BOOL CSDDevice::Attach()
 
 BOOL CSDDevice::Detach()
 {
+    SD_API_STATUS   status  = SD_API_STATUS_SUCCESS;
     Lock();
     if (m_fAttached) {
         m_fAttached = FALSE;
         SDIOConnectDisconnectInterrupt(NULL,FALSE);
         SDUnloadDevice();
-        for (DWORD dwIndex=0; dwIndex<m_dwArraySize ; dwIndex++ ) {
+        for (DWORD dwIndex=0; dwIndex < m_dwArraySize ; dwIndex++ ) {
             if( m_rgObjectArray[m_dwCurSearchIndex] ) {
                 // After this point the status should return during the completion.
                 SDBUS_REQUEST_HANDLE sdBusRequestHandle ;
@@ -172,17 +188,13 @@ BOOL CSDDevice::Detach()
                 sdBusRequestHandle.bit.sdFunctionIndex = m_FuncionIndex;
                 sdBusRequestHandle.bit.sdRequestIndex = dwIndex;
                 sdBusRequestHandle.bit.sd1f = 0x1f;
-                CSDBusRequest *pRequestCurrent = RawObjectIndex(m_dwCurSearchIndex);
-                if( pRequestCurrent != NULL ) {
-                    sdBusRequestHandle.bit.sdRandamNumber = pRequestCurrent->GetRequestRandomIndex();
-                }
-                
-                SDFreeBusRequest_I(sdBusRequestHandle.hValue);
+                sdBusRequestHandle.bit.sdRandamNumber =RawObjectIndex(m_dwCurSearchIndex)->GetRequestRandomIndex();
+                status = SDFreeBusRequest_I(sdBusRequestHandle.hValue);
             }
         }
     }
     Unlock();
-    return FALSE;
+    return SD_API_SUCCESS(status);
 }
 
 SDBUS_DEVICE_HANDLE CSDDevice::GetDeviceHandle()
@@ -202,9 +214,9 @@ SDBUS_DEVICE_HANDLE CSDDevice::GetDeviceHandle()
 BOOL    CSDDevice::IsValid20Card()
 {
     BOOL fValid20Card = FALSE;
-    if (m_DeviceType!= Device_SD_IO && m_DeviceType != Device_SD_Combo ) {
-        SD_API_STATUS status = SD_API_STATUS_DEVICE_UNSUPPORTED;
-        SD_COMMAND_RESPONSE  response;                       // response buffer
+    if (m_DeviceType != Device_SD_IO && m_DeviceType != Device_SD_Combo ) {
+        SD_API_STATUS           status      = SD_API_STATUS_DEVICE_UNSUPPORTED;
+        SD_COMMAND_RESPONSE     response    = {NoResponse, 0};
         // Supported Voltage.
         const BYTE fCheckFlags = 0x5a;
         BYTE fVHS = (((m_sdSlot.VoltageWindowMask & 0x00f80000)!=0)? 1: 2); // 2.0 / 4.3.13
@@ -231,12 +243,14 @@ BOOL    CSDDevice::IsValid20Card()
 
 SD_API_STATUS CSDDevice::DetectSDCard( DWORD& dwNumOfFunct)
 {
+    SD_API_STATUS           status      = SD_API_STATUS_DEVICE_UNSUPPORTED;
+    SD_COMMAND_RESPONSE     response    = {NoResponse, 0};
+
     if (m_FuncionIndex!=0) {
         ASSERT(FALSE);
         return SD_API_STATUS_DEVICE_UNSUPPORTED;
     }
-    SD_API_STATUS status = SD_API_STATUS_DEVICE_UNSUPPORTED;
-    SD_COMMAND_RESPONSE  response;                       // response buffer
+
     dwNumOfFunct = 1;
     SDCARD_DEVICE_TYPE deviceType = Device_Unknown;
 
@@ -263,68 +277,12 @@ SD_API_STATUS CSDDevice::DetectSDCard( DWORD& dwNumOfFunct)
                 }
 
         }
-    }
-
-    // if this is sdio we will skip MMC detection 
-    status = SD_API_STATUS_SUCCESS;
-
-    // Detect SD Memory
-    if (SD_API_SUCCESS(status) && (deviceType == Device_Unknown || deviceType == Device_SD_Combo )) { // We have to do other than SD_IO.
-        // Intiaize
-        status = SendSDCommand( SD_CMD_GO_IDLE_STATE,  0x00000000,  NoResponse, NULL);
-        if (SD_API_SUCCESS(status)) {
-            BOOL fValid20Card = IsValid20Card();
-            m_dwOCR = m_sdSlot.VoltageWindowMask;
-            
-            if (fValid20Card) {
-                // The card is 2.0 or higher
-                m_dwOCR |= 0x40000000;
-
-                // The card card could be UHS-I try S18R bit
-                m_dwOCR |= 0x01000000;
-            }
-#ifndef  DISABLE_UHS         
-repeat_op_cond:    
-#endif      
-            for(INT intCount = 100; intCount > 0; intCount--) {
-                status = SendSDAppCommand( SD_ACMD_SD_SEND_OP_COND, m_dwOCR, ResponseR3,  &response);   
-                if (SD_API_SUCCESS(status)) {
-                    if((response.ResponseBuffer[4] & 0x80) == 0x80) {
-                        break;
-                    }               
-                }
-                else {
-                    break;
-                }
-                Sleep(10);       
-            }
-            
-            if (SD_API_SUCCESS(status)) {
-                UpdateCachedRegisterFromResponse( SD_INFO_REGISTER_OCR, &response);
- #ifndef  DISABLE_UHS              
-                // UHS-I ready check
-                if((response.ResponseBuffer[4] & 0x41) == 0x41)
-                {
-                    // ready to 1.8 voltage switch
-                    status = SendSDCommand( 0x0B, 0, ResponseR1,  &response); 
-                    if (!SD_API_SUCCESS(status) || (response.ResponseBuffer[1] & (1 << 19))) {
-                        // this is 2.0+ card but it refuces to go 1.8V
-                        m_dwOCR &= ~0x01000000;
-                        // try again acmd41
-                        goto repeat_op_cond;
-                    }
-                }
-#endif                
-
-                if (deviceType == Device_Unknown)
-                    SetDeviceType(deviceType = Device_SD_Memory);
-                status = SetOperationVoltage(Device_SD_Memory, deviceType == Device_SD_Memory );
-            }
+        else {
+            DEBUGMSG(SDBUS_ZONE_DEVICE, (TEXT("SDBusDriver: SDIO Card check timeout, moving on \n")));
+            status = SD_API_STATUS_SUCCESS; // Timeout is OK . we will continue to skan memory.
         }
     }
 
-    // if this is sd we will skip MMC detection 
-    status = SD_API_STATUS_SUCCESS;
     // Detect SD MMC
     if (SD_API_SUCCESS(status) && deviceType == Device_Unknown) { // We have to do other than SD_IO.
         // Intiaize
@@ -343,6 +301,10 @@ repeat_op_cond:
                     status = SetOperationVoltage(Device_MMC,TRUE);
                     DEBUGMSG(SDBUS_ZONE_DEVICE, (TEXT("MMC card: sector access mode is used \n")));
                 }
+                else {
+                    //if failed, ignore it
+                    status = SD_API_STATUS_SUCCESS;
+                }
             }
             else { // now try byte access mode
                 status = SendSDCommand( SD_CMD_GO_IDLE_STATE,  0x00000000,  NoResponse, NULL);
@@ -355,14 +317,76 @@ repeat_op_cond:
                             status = SetOperationVoltage(Device_MMC,TRUE);
                             DEBUGMSG(SDBUS_ZONE_DEVICE, (TEXT("MMC card: byte access mode is used \n")));
                         }
+                        else {
+                            //if failed, ignore it
+                            status = SD_API_STATUS_SUCCESS;
+                        }
                     }
                 }
             }
         }
     }
 
+    // Detect SD Memory
+    if (SD_API_SUCCESS(status) && (deviceType == Device_Unknown || deviceType == Device_SD_Combo )) { // We have to do other than SD_IO.
+        // Intiaize
+        status = SendSDCommand( SD_CMD_GO_IDLE_STATE,  0x00000000,  NoResponse, NULL);
+        if (SD_API_SUCCESS(status)) {
+            BOOL fValid20Card = IsValid20Card();
 
-    if (!SD_API_SUCCESS(status)){
+// WEC7_QFE_2014M07 has this:
+//            // PhiscalLayer 2.0 Table 4-27.
+//            status = SendSDAppCommand( SD_ACMD_SD_SEND_OP_COND, (fValid20Card? (m_sdSlot.VoltageWindowMask | 0x40000000): 0), ResponseR3,  &response);
+// Replaced by this:
+
+            m_dwOCR = m_sdSlot.VoltageWindowMask;
+            
+            if (fValid20Card) {
+                // The card is 2.0 or higher
+                m_dwOCR |= 0x40000000;
+
+                // The card card could be UHS-I try S18R bit
+                m_dwOCR |= 0x01000000;
+            }
+#ifndef  DISABLE_UHS
+repeat_op_cond:
+#endif      
+            for(INT intCount = 100; intCount > 0; intCount--) {
+                status = SendSDAppCommand( SD_ACMD_SD_SEND_OP_COND, m_dwOCR, ResponseR3,  &response);
+                if (SD_API_SUCCESS(status)) {
+                    if((response.ResponseBuffer[4] & 0x80) == 0x80) {
+                        break;
+                    }
+                }
+                else {
+                    break;
+                }
+                Sleep(10);
+            }
+
+            if (SD_API_SUCCESS(status)) {
+                UpdateCachedRegisterFromResponse( SD_INFO_REGISTER_OCR, &response);
+ #ifndef  DISABLE_UHS
+                // UHS-I ready check
+                if((response.ResponseBuffer[4] & 0x41) == 0x41)
+                {
+                    // ready to 1.8 voltage switch
+                    status = SendSDCommand( 0x0B, 0, ResponseR1,  &response); 
+                    if (!SD_API_SUCCESS(status) || (response.ResponseBuffer[1] & (1 << 19))) {
+                        // this is 2.0+ card but it refuces to go 1.8V
+                        m_dwOCR &= ~0x01000000;
+                        // try again acmd41
+                        goto repeat_op_cond;
+                    }
+                }
+#endif
+
+                if (deviceType == Device_Unknown)
+                    SetDeviceType(deviceType = Device_SD_Memory);
+                status = SetOperationVoltage(Device_SD_Memory, deviceType == Device_SD_Memory );
+            }
+        }
+        if (!SD_API_SUCCESS(status)){
             // check to see what we discovered and post the appropriate error message
             if (Device_SD_Combo == deviceType) {
                 DEBUGMSG(SDCARD_ZONE_ERROR, (TEXT("SDBusDriver: SDIOCombo, Memory portion in slot %d not responsing to ACMD41 \n"), m_sdSlot.GetSlotIndex()));
@@ -372,9 +396,8 @@ repeat_op_cond:
                 DEBUGMSG(SDCARD_ZONE_ERROR, (TEXT("SDBusDriver: Unknown device found in slot %d \n"),m_sdSlot.GetSlotIndex()));
                 status = SD_API_STATUS_DEVICE_UNSUPPORTED;
             }
+        }
     }
-    ASSERT(SD_API_SUCCESS(status));
-    ASSERT(deviceType != Device_Unknown);
     return status;
 }
 
@@ -419,25 +442,34 @@ CSDBusRequest* CSDDevice::InsertRequestAtEmpty( PDWORD pdwIndex, CSDBusRequest* 
 ///////////////////////////////////////////////////////////////////////////////
 SD_API_STATUS CSDDevice::GetCardRegisters()
 {
+    SD_API_STATUS               status                          =   SD_API_STATUS_DEVICE_UNSUPPORTED;
+    SD_COMMAND_RESPONSE         response                        =   {NoResponse, 0};
+    UCHAR                       scrReg[SD_SCR_REGISTER_SIZE]    =   {0};            // temporary buffer
+    USHORT                      oidValue                        =   0;              // oid value
+    SD_CARD_STATUS              cardStatus                      =   {0};            // card status
+    SDCARD_DEVICE_TYPE          deviceType                      =   m_DeviceType;   // device type
+
     if (m_FuncionIndex!=0) {
         ASSERT(FALSE);
         return SD_API_STATUS_DEVICE_UNSUPPORTED;
     }
-    SD_API_STATUS               status = SD_API_STATUS_DEVICE_UNSUPPORTED;    // status
-    SD_COMMAND_RESPONSE         response;  // response
-    UCHAR                       scrReg[SD_SCR_REGISTER_SIZE]; // temporary buffer
-    USHORT                      oidValue;  // oid value
-    SD_CARD_STATUS              cardStatus; // card status
+
+    if (m_DeviceType == Device_Unknown)
+    {
+        deviceType = m_sdSlot.GetDevice0Type();
+    }
 
     // must get CID first in order to get the cards into the IDENT state.
     // Check for SD I/O - only cards; will not have  CID.
-    if (Device_SD_IO != m_DeviceType) {
+    if (Device_SD_IO != deviceType) 
+    {
         DEBUGMSG(SDBUS_ZONE_DEVICE, (TEXT("CSDDevice:  Getting registers from slot %d \n"), m_sdSlot.GetSlotIndex()));
 
         // for MMC, SD Memory and SD Combo cards, retreive the CID
         status = SendSDCommand(SD_CMD_ALL_SEND_CID,0x00000000,ResponseR2,&response);
 
-        if (!SD_API_SUCCESS(status)){
+        if (!SD_API_SUCCESS(status))
+        {
             return status;
         }
 
@@ -447,12 +479,14 @@ SD_API_STATUS CSDDevice::GetCardRegisters()
     }
 
     // fetch/set the RCA
-    if (Device_MMC != m_DeviceType) {
+    if (Device_MMC != deviceType) 
+    {
         DEBUGMSG(SDBUS_ZONE_DEVICE, (TEXT("CSDDevice: Getting RCA from SD card in  slot %d .... \n"),m_sdSlot.GetSlotIndex()));
         // get the RCA
         status = SendSDCommand(SD_CMD_SEND_RELATIVE_ADDR, 0x00000000,ResponseR6,&response);
 
-        if (!SD_API_SUCCESS(status)){
+        if (!SD_API_SUCCESS(status))
+        {
             return status;
         }
         // update shadow registers
@@ -460,7 +494,9 @@ SD_API_STATUS CSDDevice::GetCardRegisters()
 
         DEBUGMSG(SDBUS_ZONE_DEVICE, (TEXT("CSDDevice: Got RCA (0x%04X) from SD card in slot %d \n"),
             m_RelativeAddress, m_sdSlot.GetSlotIndex()));
-    } else {
+    } 
+    else
+    {
         // get OEM ID from the CID
         oidValue = m_CachedRegisters.CID[SD_CID_OID_OFFSET];
         oidValue |= (((USHORT)m_CachedRegisters.CID[SD_CID_OID_OFFSET + 1]) << 8);
@@ -470,7 +506,8 @@ SD_API_STATUS CSDDevice::GetCardRegisters()
         m_RelativeAddress = (SD_CARD_RCA)(oidValue + m_sdSlot.GetSlotIndex());
 
         // add 1 if this is zero
-        if (m_RelativeAddress == 0) {
+        if (m_RelativeAddress == 0) 
+        {
             m_RelativeAddress++;
         }
         // for MMC cards, we must set the RCA
@@ -479,7 +516,8 @@ SD_API_STATUS CSDDevice::GetCardRegisters()
         // set the RCA
         status = SendSDCommand(SD_CMD_MMC_SET_RCA,((DWORD)m_RelativeAddress) << 16, ResponseR1,&response);
 
-        if (!SD_API_SUCCESS(status)){
+        if (!SD_API_SUCCESS(status))
+        {
             return status;
         }
 
@@ -489,7 +527,8 @@ SD_API_STATUS CSDDevice::GetCardRegisters()
     // now that the RCA has been fetched/set, we can move on to do other things.........
 
     // check for SD I/O - Only cards. They will not have a CSD or card status
-    if (Device_SD_IO != m_DeviceType) {
+    if (Device_SD_IO != deviceType) 
+    {
         DEBUGMSG(SDBUS_ZONE_DEVICE, (TEXT("CSDDevice: Getting CSD in slot %d .... \n"), m_sdSlot.GetSlotIndex()));
 
         // get the CSD
@@ -498,7 +537,8 @@ SD_API_STATUS CSDDevice::GetCardRegisters()
             ResponseR2,
             &response);
 
-        if (!SD_API_SUCCESS(status)){
+        if (!SD_API_SUCCESS(status))
+        {
             return status;
         }
 
@@ -507,16 +547,16 @@ SD_API_STATUS CSDDevice::GetCardRegisters()
         DEBUGMSG(SDBUS_ZONE_DEVICE, (TEXT("CSDDevice: Got CSD from device in slot %d \n"), m_sdSlot.GetSlotIndex()));
         // get the card status
         status = SendSDCommand( SD_CMD_SEND_STATUS,((DWORD)m_RelativeAddress) << 16,ResponseR1, &response);
-        if (!SD_API_SUCCESS(status)){
+        if (!SD_API_SUCCESS(status))
+        {
             return status;
         }
 
 
-        INT RetVal = 0;
-        RetVal = memcpy_s(&cardStatus, sizeof(SD_CARD_STATUS), &response.ResponseBuffer[1], sizeof(SD_CARD_STATUS));
-        ASSERT(RetVal == 0);
-        
-        if (cardStatus & SD_STATUS_CARD_IS_LOCKED) {
+        SDGetCardStatusFromResponse(&response, &cardStatus);
+
+        if (cardStatus & SD_STATUS_CARD_IS_LOCKED) 
+        {
             DEBUGMSG(SDBUS_ZONE_DEVICE, (TEXT("CSDDevice: card in slot %d is locked\n"), m_sdSlot.GetSlotIndex()));
             m_SDCardInfo.SDMMCInformation.CardIsLocked = TRUE;
         }
@@ -530,7 +570,8 @@ SD_API_STATUS CSDDevice::GetCardRegisters()
     // too as mentioned in I/O working group newsgroup
     status = SendSDCommand( SD_CMD_SELECT_DESELECT_CARD,((DWORD)m_RelativeAddress) << 16, ResponseR1b, &response);
 
-    if (!SD_API_SUCCESS(status)){
+    if (!SD_API_SUCCESS(status))
+    {
         DEBUGMSG(SDCARD_ZONE_ERROR, (TEXT("CSDDevice: Failed to select card in slot %d \n"), m_sdSlot.GetSlotIndex()));
         return status;
     }
@@ -538,9 +579,11 @@ SD_API_STATUS CSDDevice::GetCardRegisters()
     DEBUGMSG(SDBUS_ZONE_DEVICE, (TEXT("CSDDevice:Card in slot %d is now selected \n"), m_sdSlot.GetSlotIndex()));
 
     // only SD Memory and Combo cards have an SCR
-    if ((Device_SD_Memory == m_DeviceType) || (Device_SD_Combo == m_DeviceType)) {
+    if ((Device_SD_Memory == deviceType) || (Device_SD_Combo == deviceType)) 
+    {
         // if the card is unlocked, get the SCR
-        if (!m_SDCardInfo.SDMMCInformation.CardIsLocked) {
+        if (!m_SDCardInfo.SDMMCInformation.CardIsLocked) 
+        {
             // get the SD Configuration register
             status = SendSDAppCmd(SD_ACMD_SEND_SCR, 0, SD_READ,  ResponseR1,&response,
                 1,                    // 1 block
@@ -551,14 +594,18 @@ SD_API_STATUS CSDDevice::GetCardRegisters()
             // to read the SCR then just set up the cached SCR register to default to
             // a 1bit access mode.
 
-            if (!SD_API_SUCCESS(status)){
+            if (!SD_API_SUCCESS(status))
+            {
                 DEBUGMSG(SDCARD_ZONE_ERROR, (TEXT("CSDDevice: Failed to get SCR from device in slot %d \n"), m_sdSlot.GetSlotIndex()));
                 memset(m_CachedRegisters.SCR, 0, sizeof(m_CachedRegisters.SCR));
-            } else {
+            } 
+            else
+            {
                 // this is a spec discrepency, since the SCR register is not associated with
                 // an address, the byte order it ambiguous.  All the cards we have seen store the data
                 // most significant byte first as it arrives.
-                for (ULONG ii = 0 ; ii < sizeof(m_CachedRegisters.SCR); ii++) {
+                for (ULONG ii = 0 ; ii < sizeof(m_CachedRegisters.SCR); ii++)
+                {
                     m_CachedRegisters.SCR[ii] = scrReg[(SD_SCR_REGISTER_SIZE - 1) - ii];
                 }
 
@@ -569,19 +616,29 @@ SD_API_STATUS CSDDevice::GetCardRegisters()
 
     return SD_API_STATUS_SUCCESS;
 }
-SD_API_STATUS CSDDevice::HandleDeviceSelectDeselect(SD_SLOT_EVENT SlotEvent,BOOL fSelect)
+SD_API_STATUS CSDDevice::HandleDeviceSelectDeselect(SD_SLOT_EVENT SlotEvent, BOOL fSelect)
 {
-    SD_API_STATUS          status = SD_API_STATUS_SUCCESS;
-    UCHAR                  regValue;
-    SD_COMMAND_RESPONSE    response;
-    DbgPrintZo(SDBUS_ZONE_DEVICE, (TEXT("CSDDevice: HandleSlotSelectDeselect++: %d \n"),SlotEvent));
-    BOOL fSDIO = FALSE;
-    BOOL fSDMemory = FALSE;
+    SD_API_STATUS                   status              = SD_API_STATUS_SUCCESS;
+    SD_COMMAND_RESPONSE             response            = {NoResponse, 0};
+    UCHAR                           regValue            = 0;
+    BOOL                            fSDIO               = FALSE;
+    BOOL                            fSDMemory           = FALSE;
+    SDCARD_DEVICE_TYPE              deviceType          = m_DeviceType;   // device type
 
-    if (m_DeviceType ==Device_SD_IO ||  m_DeviceType == Device_SD_Combo ) {
+    DbgPrintZo(SDBUS_ZONE_DEVICE, (TEXT("CSDDevice: HandleSlotSelectDeselect++: %d \n"),SlotEvent));
+
+    if (m_DeviceType == Device_Unknown)
+    {
+       deviceType = m_sdSlot.GetDevice0Type();
+    }
+
+    if (deviceType == Device_SD_IO ||  deviceType == Device_SD_Combo ) 
+    {
         fSDIO = TRUE;
     }
-    if ((m_DeviceType == Device_MMC) || (m_DeviceType == Device_SD_Memory) ||(m_DeviceType == Device_SD_Combo)) {
+
+    if ((deviceType == Device_MMC) || (deviceType == Device_SD_Memory) ||(deviceType == Device_SD_Combo)) 
+    {
         fSDMemory = TRUE;
     }
 
@@ -608,6 +665,9 @@ SD_API_STATUS CSDDevice::HandleDeviceSelectDeselect(SD_SLOT_EVENT SlotEvent,BOOL
                     status = SetCardPower(Device_SD_IO,m_OperatingVoltage,FALSE);
                 }
 
+                //  For SDIO, GetCardRegisters will do the following things:
+                //  Issue CMD3 to get RCA
+                //  Issue CMD7 to select the card again
                 if (SD_API_SUCCESS(status)) {
                     status = GetCardRegisters();
                 }
@@ -628,7 +688,7 @@ SD_API_STATUS CSDDevice::HandleDeviceSelectDeselect(SD_SLOT_EVENT SlotEvent,BOOL
                         (TEXT("CSDSlot: Go Idle Failed during selection: Status: 0x%08X on slot:%d \n"),status,m_sdSlot.GetSlotIndex()));
                 }
                 if (SD_API_SUCCESS(status)) {
-                    if ((m_DeviceType == Device_SD_Memory) || (m_DeviceType == Device_SD_Combo)) {
+                    if ((deviceType == Device_SD_Memory) || (deviceType == Device_SD_Combo)) {
                         status = SendSDAppCommand(SD_ACMD_SD_SEND_OP_COND,0,ResponseR3,&response);
                     }
                 }
@@ -637,9 +697,9 @@ SD_API_STATUS CSDDevice::HandleDeviceSelectDeselect(SD_SLOT_EVENT SlotEvent,BOOL
                 // Re-initialize memory controller by powering it up
                 // SetCardPower will send CMD0 first before issuing ACMD41
                 if (SD_API_SUCCESS(status)) {
-                    status = SetCardPower(m_DeviceType, m_OperatingVoltage,FALSE);
+                    status = SetCardPower(deviceType, m_OperatingVoltage,FALSE);
                 }
-                // For SD Memory, GetCardRegisters will do the following things:
+                //  For SD Memory, GetCardRegisters will do the following things:
                 //  Issue CMD2 to make memory state trans to IDENT
                 //  Issue CMD3 to get or set RCA
                 //  Issue CMD7 to select the card again
@@ -703,16 +763,23 @@ SD_API_STATUS CSDDevice::HandleDeviceSelectDeselect(SD_SLOT_EVENT SlotEvent,BOOL
 ///////////////////////////////////////////////////////////////////////////////
 SD_API_STATUS CSDDevice::DeactivateCardDetect()
 {
-    UCHAR                   regValue;       // intermediate value
-    SD_API_STATUS           status;         // status
-    SD_COMMAND_RESPONSE     response;       // response
-    BOOL                    fDisableSDIO;   // disable SDIO portion?
+    SD_API_STATUS           status          = SD_API_STATUS_SUCCESS;
+    SD_COMMAND_RESPONSE     response        = {NoResponse, 0};
+    UCHAR                   regValue        = 0;// intermediate value
+    BOOL                    fDisableSDIO    = FALSE;// disable SDIO portion?
+    SDCARD_DEVICE_TYPE      deviceType      = m_DeviceType;   // device type
 
     ASSERT(m_FuncionIndex == 0);
-    if (Device_SD_IO == m_DeviceType ) {
+
+    if (m_DeviceType == Device_Unknown)
+    {
+        deviceType = m_sdSlot.GetDevice0Type();
+    }
+
+    if (Device_SD_IO == deviceType ) {
         fDisableSDIO = TRUE;
     }
-    else if (Device_SD_Combo == m_DeviceType) {
+    else if (Device_SD_Combo == deviceType) {
         fDisableSDIO = TRUE;
 
         // *** Combo Card Issue ***
@@ -740,14 +807,14 @@ SD_API_STATUS CSDDevice::DeactivateCardDetect()
         }
     }
     else {
-        DEBUGCHK(Device_SD_Memory == m_DeviceType ||
-            Device_MMC == m_DeviceType);
+        DEBUGCHK(Device_SD_Memory == deviceType ||
+            Device_MMC == deviceType);
         fDisableSDIO = FALSE;
     }
 
     // for SD memory or combo, send ACMD42 to turn off card detect resistor
-    if ( (Device_SD_Memory == m_DeviceType) ||
-         (Device_SD_Combo == m_DeviceType) ) {
+    if ( (Device_SD_Memory == deviceType) ||
+         (Device_SD_Combo == deviceType) ) {
         // send ACMD42
         status = SendSDAppCommand(SD_ACMD_SET_CLR_CARD_DETECT,
             0x00000000,  // bit 0 - cleared to disconnect pullup resistor
@@ -826,29 +893,34 @@ VOID CSDDevice::UpdateCachedRegisterFromResponse(SD_INFO_TYPE  Register,PSD_COMM
 SD_API_STATUS  CSDDevice::SetOperationVoltage(SDCARD_DEVICE_TYPE DeviceType,BOOL SetHCPower)
 {
     SD_API_STATUS status = SD_API_STATUS_DEVICE_UNSUPPORTED;
-    if (SetHCPower) {
-        DWORD ocrValue = 0;
-        ASSERT(m_FuncionIndex == 0 );
-        if (m_DeviceType == Device_SD_Memory || m_DeviceType == Device_MMC) {
-            ocrValue = (DWORD)m_CachedRegisters.OCR[0] & ~0xF;
-            ocrValue |= ((DWORD)m_CachedRegisters.OCR[1]) << 8;
-            ocrValue |= ((DWORD)m_CachedRegisters.OCR[2]) << 16;
 
-            if (m_DeviceType == Device_MMC && (ocrValue &0x80)!=0 ) { // Low Voltage Support.
-                ocrValue |= SD_VDD_WINDOW_1_8_TO_1_9 | SD_VDD_WINDOW_1_7_TO_1_8;
-                ocrValue &= ~0x80;
+    if (SetHCPower) 
+    {
+        if (m_OperatingVoltage == 0)
+        {
+            DWORD ocrValue = 0;
+            ASSERT(m_FuncionIndex == 0 );
+            if (m_DeviceType == Device_SD_Memory || m_DeviceType == Device_MMC) {
+                ocrValue = (DWORD)m_CachedRegisters.OCR[0] & ~0xF;
+                ocrValue |= ((DWORD)m_CachedRegisters.OCR[1]) << 8;
+                ocrValue |= ((DWORD)m_CachedRegisters.OCR[2]) << 16;
+
+                if (m_DeviceType == Device_MMC && (ocrValue &0x80)!=0 ) { // Low Voltage Support.
+                    ocrValue |= SD_VDD_WINDOW_1_8_TO_1_9 | SD_VDD_WINDOW_1_7_TO_1_8;
+                    ocrValue &= ~0x80;
+                }
+
             }
+            else if (m_DeviceType == Device_SD_IO || m_DeviceType == Device_SD_Combo) {
+                ocrValue = (DWORD)m_CachedRegisters.IO_OCR[0] & ~0xF;
+                ocrValue |= ((DWORD)m_CachedRegisters.IO_OCR[1]) << 8;
+                ocrValue |= ((DWORD)m_CachedRegisters.IO_OCR[2]) << 16;
+            }
+            else
+                ASSERT(FALSE);
 
+            m_OperatingVoltage = m_sdSlot.SDGetOperationalVoltageRange(ocrValue);
         }
-        else if (m_DeviceType == Device_SD_IO || m_DeviceType == Device_SD_Combo) {
-            ocrValue = (DWORD)m_CachedRegisters.IO_OCR[0] & ~0xF;
-            ocrValue |= ((DWORD)m_CachedRegisters.IO_OCR[1]) << 8;
-            ocrValue |= ((DWORD)m_CachedRegisters.IO_OCR[2]) << 16;
-        }
-        else
-            ASSERT(FALSE);
-
-        m_OperatingVoltage = m_sdSlot.SDGetOperationalVoltageRange(ocrValue);
     }
 
     // check to see if the voltages can be supported
@@ -876,15 +948,13 @@ SD_API_STATUS  CSDDevice::SetOperationVoltage(SDCARD_DEVICE_TYPE DeviceType,BOOL
 ///////////////////////////////////////////////////////////////////////////////
 SD_API_STATUS CSDDevice::SetCardPower(SDCARD_DEVICE_TYPE DeviceType,DWORD OperatingVoltageMask,BOOL SetHCPower)
 {
-    SD_API_STATUS       status = SD_API_STATUS_SUCCESS;  // intermediate status
-    SD_COMMAND_RESPONSE response;                        // response
-    UCHAR               command;                         // command
-    SD_RESPONSE_TYPE    responseType;                    // response type
-    ULONG               powerUpRetries;                  // power up retries
-    BOOL                appcmd = FALSE;                  // command is an app cmd
-    ULONG               powerUpInterval;                 // powerup interval
-    ULONG               totalPowerUpTime;                // total powerup time
-    ULONG               powerUpIntervalByDevice;         // powerup interval by device
+    SD_API_STATUS       status                  = SD_API_STATUS_SUCCESS;    // intermediate status
+    SD_COMMAND_RESPONSE response                = {NoResponse, 0};          // response
+    UCHAR               command                 = 0;                        // command
+    SD_RESPONSE_TYPE    responseType            = NoResponse;               // response type
+    ULONG               powerUpRetries          = 0;                        // power up retries
+    BOOL                appcmd                  = FALSE;                    // command is an app cmd
+    ULONG               powerUpIntervalByDevice = 0;                        // powerup interval by device
 
     switch (DeviceType) {
 
@@ -947,27 +1017,25 @@ SD_API_STATUS CSDDevice::SetCardPower(SDCARD_DEVICE_TYPE DeviceType,DWORD Operat
         }
     }
 
-    totalPowerUpTime = CSDHostContainer::RegValueDWORD(POWER_UP_POLL_TIME_KEY, DEFAULT_POWER_UP_TOTAL_WAIT_TIME);
-    powerUpInterval = CSDHostContainer::RegValueDWORD(POWER_UP_POLL_TIME_INTERVAL_KEY, powerUpIntervalByDevice);
-    
-    if (totalPowerUpTime == 0) {
-        powerUpRetries = totalPowerUpTime;
+    if (m_totalPowerUpTime == -1)
+    {
+        m_totalPowerUpTime = CSDHostContainer::RegValueDWORD(POWER_UP_POLL_TIME_KEY, DEFAULT_POWER_UP_TOTAL_WAIT_TIME);
     }
-    else if(powerUpInterval !=0 ) {
-            powerUpRetries = totalPowerUpTime / powerUpInterval;
-         }
-         else {
-            powerUpRetries = 0;
-         }            
     
+    if (m_powerUpInterval == -1)
+    {
+        m_powerUpInterval = CSDHostContainer::RegValueDWORD(POWER_UP_POLL_TIME_INTERVAL_KEY, powerUpIntervalByDevice);
+    }
+
+    powerUpRetries = m_totalPowerUpTime/m_powerUpInterval;
 
     DEBUGMSG(SDBUS_ZONE_DEVICE, (TEXT("SDBusDriver: Power Set, checking card in slot %d, MaxRetries: %d, Time: %d MS, Interval: %d MS \n"),
-        m_sdSlot.GetSlotIndex(), powerUpRetries, totalPowerUpTime , powerUpInterval));
+        m_sdSlot.GetSlotIndex(), powerUpRetries, m_totalPowerUpTime , m_powerUpInterval));
 
     while (powerUpRetries != 0) {
 
         // sleep the powerup interval
-        Sleep(powerUpInterval);
+        Sleep(m_powerUpInterval);
 
         if (appcmd) {
             // send it as an APP cmd
@@ -1031,10 +1099,10 @@ SD_API_STATUS CSDDevice::SetCardPower(SDCARD_DEVICE_TYPE DeviceType,DWORD Operat
 ///////////////////////////////////////////////////////////////////////////////
 SD_API_STATUS CSDDevice::SetCardInterface(PSD_CARD_INTERFACE_EX pInterfaceEx)
 {
-    UCHAR                   regValue;                           // register value
-    SD_API_STATUS           status = SD_API_STATUS_SUCCESS;     // intermediate status
-    SD_COMMAND_RESPONSE     response;                           // response
-    PSD_CARD_INTERFACE_EX   pInterfaceToUse;                    // interface to use
+    SD_API_STATUS           status              = SD_API_STATUS_SUCCESS;    // intermediate status
+    SD_COMMAND_RESPONSE     response            = {NoResponse, 0};          // response
+    PSD_CARD_INTERFACE_EX   pInterfaceToUse     = NULL;                     // Extended interface mode
+    UCHAR                   regValue            = 0;                        // register value
 
     if (NULL != pInterfaceEx) {
         pInterfaceToUse = pInterfaceEx;
@@ -1250,12 +1318,9 @@ SD_API_STATUS CSDDevice::SetCardInterface(PSD_CARD_INTERFACE_EX pInterfaceEx)
 ///////////////////////////////////////////////////////////////////////////////
 SD_API_STATUS CSDDevice::SelectCardInterface()
 {
-    DWORD                   bitSlice;              // bit slice
-    SD_API_STATUS           status;                // intermediate status
-
-    status = SD_API_STATUS_SUCCESS;
-
-    SD_PARSED_REGISTER_CSD CSDRegister =  {0};
+    DWORD                   bitSlice    =   0;                      // bit slice
+    SD_API_STATUS           status      =   SD_API_STATUS_SUCCESS;  // intermediate status
+    SD_PARSED_REGISTER_CSD  CSDRegister =   {0};
 
     // for MMC and SD cards allocate storage for the parsed CSD
     if ( (Device_SD_Memory == m_DeviceType) || (Device_MMC == m_DeviceType)) {
@@ -1461,7 +1526,7 @@ SD_API_STATUS CSDDevice::SwitchCardSpeedMode(SD_DEVICE_SPEEDMODE TargetSpeedMode
 ///////////////////////////////////////////////////////////////////////////////
 BOOL CSDDevice::GetUpdatedTranSpeedValue(UCHAR& Value)
 {
-    SD_COMMAND_RESPONSE  response;  // response
+    SD_COMMAND_RESPONSE response = {NoResponse, 0};// response
 
     // SDIO cards does not have CSD
     if (Device_SD_IO == m_DeviceType)
@@ -1521,37 +1586,55 @@ Done:
 ///////////////////////////////////////////////////////////////////////////////
 VOID CSDDevice::GetInterfaceOverrides()
 {
-    WCHAR regPath[MAX_KEY_PATH_LENGTH]; // regpath
-    DWORD clockRate;                    // clockrate override
-    DWORD interfaceMode;                // interface mode override
+    WCHAR regPath[MAX_KEY_PATH_LENGTH] = {0}; // regpath
 
-    // get the card registry path
-    if (!SD_API_SUCCESS(GetCustomRegPath(regPath, _countof(regPath), TRUE))) {
-        return;
-    }
-
-    CReg regDevice(HKEY_LOCAL_MACHINE, regPath);
-    if (regDevice.IsOK()) {
-        // check for clock rate override
-        clockRate = regDevice.ValueDW(SDCARD_CLOCK_RATE_OVERRIDE, (DWORD)-1);
-        if (clockRate != -1) {
-            DEBUGMSG(SDCARD_ZONE_WARN, (TEXT("SDBusDriver: RegPath: %s overrides clock rate to : %d\n"),
-                 regPath,clockRate));
-            m_CardInterfaceEx.ClockRate = clockRate;
+    if (m_overridesFound == FALSE)
+    {
+        // get the card registry path
+        if (!SD_API_SUCCESS(GetCustomRegPath(regPath, _countof(regPath), TRUE))) 
+        {
+            m_overridesFound = TRUE;
+            return;
         }
 
-        // check for interface mode override
-        interfaceMode = regDevice.ValueDW(SDCARD_INTERFACE_MODE_OVERRIDE, (DWORD)-1);
-        if (interfaceMode != -1) {
-            if (interfaceMode == SDCARD_INTERFACE_OVERRIDE_1BIT) {
-                m_CardInterfaceEx.InterfaceModeEx.bit.sd4Bit = 0 ;
-                DEBUGMSG(SDCARD_ZONE_WARN, (TEXT("SDBusDriver: RegPath: %s overrides interface mode to 1 bit \n"),regPath));
-            } else if (interfaceMode == SDCARD_INTERFACE_OVERRIDE_4BIT) {
-                m_CardInterfaceEx.InterfaceModeEx.bit.sd4Bit = 1;
-                DEBUGMSG(SDCARD_ZONE_WARN, (TEXT("SDBusDriver: RegPath: %s overrides interface mode to 4 bit \n"),regPath));
+        CReg regDevice(HKEY_LOCAL_MACHINE, regPath);
+        if (regDevice.IsOK()) 
+        {
+            // check for clock rate override
+            m_clockRateOverride = regDevice.ValueDW(SDCARD_CLOCK_RATE_OVERRIDE, (DWORD)-1);
+            if (m_clockRateOverride != -1) 
+            {
+                DEBUGMSG(SDCARD_ZONE_WARN, (TEXT("SDBusDriver: RegPath: %s overrides clock rate to : %d\n"),
+                    regPath, m_clockRateOverride));
+            }
+            // check for interface mode override
+            m_interfaceModeOverride = regDevice.ValueDW(SDCARD_INTERFACE_MODE_OVERRIDE, (DWORD)-1);
+            if (m_interfaceModeOverride != -1) 
+            {
+                DEBUGMSG(SDCARD_ZONE_WARN, (TEXT("SDBusDriver: RegPath: %s overrides interface mode to %d bit \n"),
+                    regPath, m_interfaceModeOverride));
             }
         }
+        m_overridesFound = TRUE;
     }
+
+    if (m_clockRateOverride != -1)
+    {
+        m_CardInterfaceEx.ClockRate = m_clockRateOverride;
+    }
+
+    if (m_interfaceModeOverride != -1) 
+    {
+        if (m_interfaceModeOverride == SDCARD_INTERFACE_OVERRIDE_1BIT)
+        {
+            m_CardInterfaceEx.InterfaceModeEx.bit.sd4Bit = 0;
+        } 
+        else if (m_interfaceModeOverride == SDCARD_INTERFACE_OVERRIDE_4BIT)
+        {
+            m_CardInterfaceEx.InterfaceModeEx.bit.sd4Bit = 1;
+        }
+    }
+
 }
 
 
@@ -1570,8 +1653,8 @@ SD_API_STATUS CSDDevice::GetCustomRegPath(__out_ecount(cchPath) LPTSTR          
                                              DWORD                  cchPath,
                                              BOOL                   BasePath)
 {
-    SD_PARSED_REGISTER_CID  ParsedRegisters;                // parsed registers
-    SD_API_STATUS           status = SD_API_STATUS_SUCCESS; // intermediate status
+    SD_PARSED_REGISTER_CID  ParsedRegisters = {0};                  // parsed registers
+    SD_API_STATUS           status          = SD_API_STATUS_SUCCESS;// intermediate status
 
     DEBUGCHK(pPath);
 
@@ -1676,10 +1759,10 @@ SD_API_STATUS CSDDevice::GetCustomRegPath(__out_ecount(cchPath) LPTSTR          
 ///////////////////////////////////////////////////////////////////////////////
 SD_API_STATUS CSDDevice::SDLoadDevice()
 {
-    TCHAR                   loadPath[MAX_KEY_PATH_LENGTH];  // string buffer
-    BOOLEAN                 deviceFound = FALSE;            // device found flag
-    SD_API_STATUS           status;                         // intermediate status
-    HKEY                    hKey;                           // the key
+    TCHAR                   loadPath[MAX_KEY_PATH_LENGTH]   =   {0};                // string buffer
+    BOOLEAN                 deviceFound                     = FALSE;                // device found flag
+    SD_API_STATUS           status                          = SD_API_STATUS_SUCCESS;// intermediate status
+    HKEY                    hKey                            ={0};                   // the key
 
     // get the custom path for the card or function
     status = GetCustomRegPath(loadPath, _countof(loadPath), FALSE);
@@ -1689,7 +1772,7 @@ SD_API_STATUS CSDDevice::SDLoadDevice()
     }
 
     // attempt to open the path
-    if ( (RegOpenKeyEx(HKEY_LOCAL_MACHINE, loadPath, 0, KEY_READ, &hKey) == ERROR_SUCCESS) ) {
+    if ( (RegOpenKeyEx(HKEY_LOCAL_MACHINE, loadPath, 0, KEY_ALL_ACCESS,&hKey) == ERROR_SUCCESS) ) {
         RegCloseKey(hKey);
         deviceFound = TRUE;
     } else {
@@ -1728,7 +1811,7 @@ SD_API_STATUS CSDDevice::SDLoadDevice()
             }
         }
     }
-    ASSERT(deviceFound);
+    //ASSERT(deviceFound);
     CSDHostContainer * pHostContainer = CSDHostContainer::GetHostContainer();
 
     if (deviceFound && pHostContainer && m_pDriverFolder == NULL  ) {
@@ -1747,10 +1830,13 @@ SD_API_STATUS CSDDevice::SDLoadDevice()
                 sizeof(hDeviceHandle),
                 DEVLOAD_CLIENTINFO_VALTYPE
         };
+
         m_pDriverFolder = new DeviceFolder(pHostContainer->GetSubBusNamePrefix(),loadPath,Internal,
             m_sdSlot.GetHost().GetIndex(),m_sdSlot.GetSlotIndex(),m_FuncionIndex,
             pHostContainer->GetDeviceHandle());
-        if (m_pDriverFolder && m_pDriverFolder->Init() && m_pDriverFolder->AddInitReg(1, &riDevice) && pHostContainer->InsertChild(m_pDriverFolder)) {
+
+        if (m_pDriverFolder && m_pDriverFolder->Init() && m_pDriverFolder->AddInitReg(1, &riDevice) && pHostContainer->InsertChild(m_pDriverFolder))
+        {
             m_pDriverFolder->AddRef();
             m_sdSlot.m_SlotState = Ready;
 /*
@@ -1793,13 +1879,15 @@ SD_API_STATUS CSDDevice::SDLoadDevice()
 
             m_pDriverFolder->DeRef();
         }
-        else if (m_pDriverFolder) {
+        else if (m_pDriverFolder) 
+        {
             delete m_pDriverFolder;
             m_pDriverFolder = NULL;
         }
         Unlock();
 
-        if (!SD_API_SUCCESS(status)) {
+        if (!SD_API_SUCCESS(status)) 
+        {
             //m_sdSlot.m_SlotState = SlotInitFailed;
             DEBUGMSG(SDCARD_ZONE_ERROR, (TEXT("SDBusDriver: Failed to load driver with path: %s \n"), loadPath));
             return status;
@@ -1812,6 +1900,45 @@ SD_API_STATUS CSDDevice::SDLoadDevice()
 
 }
 
+///////////////////////////////////////////////////////////////////////////////
+//  SDReInitSlotDevice_I - reinits the slot device
+//  Input:  pDevice - the device instance
+//  Output:
+//  Notes:
+//      returns SD_API_STATUS
+///////////////////////////////////////////////////////////////////////////////
+SD_API_STATUS CSDDevice::SDReInitSlotDevice_I()
+{
+    SD_API_STATUS  status = SD_API_STATUS_SUCCESS;
+
+    Lock();
+
+    HANDLE hDeviceHandle = GetDeviceHandle().hValue;
+
+    m_sdSlot.m_SlotState = Ready;
+
+    if ( (m_DeviceType == Device_SD_IO) &&
+         m_SDCardInfo.SDIOInformation.fWUS ) 
+    {
+        // This SDIO function supports wake up. Tell the host to
+        // allow waking on SDIO interrupts if the client has a
+        // registry entry enabling this. It is okay if the host fails
+        // this call.
+        if (m_fWakeOnSDIOInterrupts) {
+            status =
+                m_sdSlot.GetHost().SlotOptionHandler(m_sdSlot.m_dwSlotIndex, SDHCDWakeOnSDIOInterrupts,
+                    &m_fWakeOnSDIOInterrupts, sizeof(m_fWakeOnSDIOInterrupts));
+
+            if (!SD_API_SUCCESS(status)) {
+                DEBUGMSG(SDCARD_ZONE_WARN, (_T("SD: Could not enable waking on SDIO interrupts\r\n")));
+            }
+        }
+    }
+
+    Unlock();
+
+    return status;
+}
 
 ///////////////////////////////////////////////////////////////////////////////
 //  SDUnloadDevice - unload the client device
@@ -1850,8 +1977,9 @@ BOOL CSDDevice::SDUnloadDevice()
 ///////////////////////////////////////////////////////////////////////////////
 SD_API_STATUS CSDDevice::RegisterClient(HANDLE hCallbackHandle,PVOID  pContext,PSDCARD_CLIENT_REGISTRATION_INFO pInfo)
 {
-    PREFAST_DEBUGCHK(pInfo);
     SD_API_STATUS status  = SD_API_STATUS_SUCCESS ;
+
+    PREFAST_DEBUGCHK(pInfo);
     if (m_hCallbackHandle) { // we already called. We can trash the the handle now
         status = SD_API_STATUS_ACCESS_VIOLATION ;
     }
@@ -1898,10 +2026,10 @@ SD_API_STATUS CSDDevice::RegisterClient(HANDLE hCallbackHandle,PVOID  pContext,P
 
 void CSDDevice::SetupWakeupSupport()
 {
-    BOOL fRet = FALSE;
-    BYTE rgbFunce[SD_CISTPLE_MAX_BODY_SIZE];
-    PSD_CISTPL_FUNCE_FUNCTION pFunce = (PSD_CISTPL_FUNCE_FUNCTION) rgbFunce;
-    DWORD cbTuple;
+    BOOL                        fRet                                = FALSE;
+    BYTE                        rgbFunce[SD_CISTPLE_MAX_BODY_SIZE]  = {0};
+    PSD_CISTPL_FUNCE_FUNCTION   pFunce                              = (PSD_CISTPL_FUNCE_FUNCTION) rgbFunce;
+    DWORD                       cbTuple                             = 0;
 
     SD_API_STATUS status = SDGetTuple_I(SD_CISTPL_FUNCE, NULL, &cbTuple, FALSE);
 
@@ -1931,16 +2059,15 @@ void CSDDevice::SetupWakeupSupport()
 SD_API_STATUS CSDDevice::SDGetSDIOPnpInformation(CSDDevice& psdDevice0)
 {
 
-    SD_API_STATUS          status;           // intermediate status
-    UCHAR                  regValue[4];      // most tuples are 4 bytes
-    UCHAR                  CSA_CISBuffer[CIS_CSA_BYTES]; // CIS and CSA are in contiguous locations
-    DWORD                  FBROffset;        // calculated FBR offset
-    DWORD                  manFid;           // manufacturer ID
-    ULONG                  length;           // buffer length
-    BOOL                   found;            // CIS found flag
-    PCHAR                  pVersionBuffer;   // tuple buffer for vers1 info
+    SD_API_STATUS   status                          = SD_API_STATUS_SUCCESS;
+    UCHAR           regValue[4]                     = {0};  // most tuples are 4 bytes
+    UCHAR           CSA_CISBuffer[CIS_CSA_BYTES]    = {0};  // CIS and CSA are in contiguous locations
+    DWORD           FBROffset                       = 0;    // calculated FBR offset
+    DWORD           manFid                          = 0;    // manufacturer ID
+    ULONG           length                          = 0;    // buffer length
+    BOOL            found                           = FALSE;// CIS found flag
+    PCHAR           pVersionBuffer                  = NULL; // tuple buffer for vers1 info
 
-    status = SD_API_STATUS_SUCCESS;
     ASSERT(m_SDCardInfo.SDIOInformation.pFunctionInformation == NULL);
     ASSERT(m_SDCardInfo.SDIOInformation.pCommonInformation == NULL);
 
@@ -2256,7 +2383,7 @@ SD_API_STATUS CSDDevice::SDGetSDIOPnpInformation(CSDDevice& psdDevice0)
 ///////////////////////////////////////////////////////////////////////////////
 VOID CSDDevice::FormatProductString(CHAR const*const pAsciiString, __out_ecount(cchString) PWCHAR pString, DWORD cchString) const
 {
-    ULONG  ii;  // loop variable
+    ULONG  ii = 0;  // loop variable
 
     for (ii = 0; ii < strlen(pAsciiString) && ii < cchString - 1; ii++) {
         // convert to Wide char
@@ -2297,10 +2424,9 @@ SD_API_STATUS CSDDevice::SendSDAppCmd( UCHAR                Command,
                            ULONG                BlockSize,
                            PUCHAR               pBlockBuffer)
 {
-    SD_API_STATUS          status;          // intermediate status
-    ULONG                  retryCount;      // retry count
-    ULONG                  i;               // loop variable
-
+    SD_API_STATUS   status      = SD_API_STATUS_SUCCESS;
+    ULONG           retryCount  = 0;    // retry count
+    ULONG           i           = 0;    // loop variable
 
     // send the APP Command primer (CMD 55)
     status = SendSDCommand(SD_CMD_APP_CMD,((DWORD)GetRelativeAddress()) << 16,ResponseR1, pResponse);
@@ -2384,13 +2510,13 @@ void CSDDevice::CopyContentFromParent(CSDDevice& psdDevice0)
     m_CachedRegisters = psdDevice0.m_CachedRegisters;
 
 }
-VOID CSDDevice::NotifyClient(SD_SLOT_EVENT_TYPE Event)
+VOID CSDDevice::NotifyClient(SD_SLOT_EVENT_TYPE eventType)
 {
-    PVOID pEventData = NULL;    // event data (defaults to NULL)
-    DWORD eventDataLength = 0;  // event data length
-
-    switch (Event) {
-        case SDCardEjected :
+    PVOID                           pEventData              = NULL;     // event data (defaults to NULL)
+    DWORD                           eventDataLength         = 0;        // event data length
+    
+    switch (eventType) {
+        case SDCardEjected:
         case SDCardBeginSelectDeselect:
         case SDCardDeselected:
         case SDCardSelected:
@@ -2398,27 +2524,47 @@ VOID CSDDevice::NotifyClient(SD_SLOT_EVENT_TYPE Event)
         case SDCardSelectRequest:
 
             break;
+
+        case SDSetAdaptiveControl:
+        case SDGetAdaptiveControl:
+
+            pEventData = &m_AdaptiveControl;
+            eventDataLength = sizeof(SD_ADAPTIVE_CONTROL);
+            break;
+
         default:
             DEBUGCHK(FALSE);
     }
     Lock();
-        // make sure this callback can be called
-    if (NULL != m_pDriverFolder ) {
-        __try {
-            if (NULL != m_hCallbackHandle && m_pSlotEventCallBack!=NULL ) {
-                IO_BUS_SD_SLOT_EVENT_CALLBACK busSdSlogEventCallback = {
-                    m_pSlotEventCallBack,(SD_DEVICE_HANDLE)GetDeviceHandle().hValue,
-                    m_pDeviceContext,
-                    Event,  0, 0  };
-                CeDriverPerformCallback(m_hCallbackHandle,IOCTL_BUS_SD_SLOT_EVENT_CALLBACK,&busSdSlogEventCallback,sizeof(busSdSlogEventCallback),
-                    NULL,0,NULL,NULL);
-            }
-            else if (NULL != m_pSlotEventCallBack ) {
-                m_pSlotEventCallBack ((SD_DEVICE_HANDLE)GetDeviceHandle().hValue,
-                    m_pDeviceContext, Event, pEventData, eventDataLength);
-            }
 
-        } __except (SDProcessException(GetExceptionInformation())) {
+    // make sure this callback can be called
+    if (NULL != m_pDriverFolder )
+    {
+        __try 
+        {
+            if (NULL != m_hCallbackHandle && m_pSlotEventCallBack != NULL ) 
+            {
+                IO_BUS_SD_SLOT_EVENT_CALLBACK busSdSlogEventCallback = 
+                {
+                    m_pSlotEventCallBack,
+                    (SD_DEVICE_HANDLE)GetDeviceHandle().hValue,
+                    m_pDeviceContext,
+                    eventType,
+                    (DWORD) pEventData, 
+                    eventDataLength 
+                };
+
+                CeDriverPerformCallback(m_hCallbackHandle, IOCTL_BUS_SD_SLOT_EVENT_CALLBACK, 
+                    &busSdSlogEventCallback, sizeof(busSdSlogEventCallback),
+                    NULL, 0, NULL, NULL);
+            }
+            else if (NULL != m_pSlotEventCallBack) 
+            {
+                m_pSlotEventCallBack ((SD_DEVICE_HANDLE)GetDeviceHandle().hValue,
+                    m_pDeviceContext, eventType, pEventData, eventDataLength);
+            }
+        } __except (SDProcessException(GetExceptionInformation())) 
+        {
             DEBUGMSG(SDCARD_ZONE_ERROR, (TEXT("SDBusDriver: slot event callback resulted in an exception \n")));
         }
     }
@@ -2428,9 +2574,10 @@ VOID CSDDevice::NotifyClient(SD_SLOT_EVENT_TYPE Event)
 SD_API_STATUS CSDDevice::SDReadWriteRegistersDirect_I(SD_IO_TRANSFER_TYPE ReadWrite, DWORD Address,
         BOOLEAN ReadAfterWrite,PUCHAR pBuffer,ULONG BufferLength)
 {
-    SD_API_STATUS   status = SD_API_STATUS_UNSUCCESSFUL;
-    HANDLE  hSynchEvent = NULL;
-    int iEventIndex = 0;
+    SD_API_STATUS   status              = SD_API_STATUS_UNSUCCESSFUL;
+    HANDLE          hSynchEvent         = NULL;
+    int             iEventIndex         = 0;
+    BOOL            bResponseTimedOut   = FALSE;
 
     if(pBuffer && BufferLength){
         hSynchEvent = TryGetSyncEventHandle(iEventIndex);
@@ -2478,9 +2625,9 @@ SD_API_STATUS CSDDevice::SDReadWriteRegistersDirect_I(SD_IO_TRANSFER_TYPE ReadWr
                 pNewRequest->AddRef();
                 CSDBusRequest * pCur = pNewRequest;
                 while (pCur) {
-                    status = m_sdSlot.QueueBusRequest(pNewRequest);
+                    status = m_sdSlot.QueueBusRequest(pCur);
                     if (!SD_API_SUCCESS(status)) {
-                        DEBUGMSG(SDCARD_ZONE_ERROR, (_T("SDReadWriteRegistersDirect_I: queue request failed(0x%x),TransferClass(%x), CommandCode(%x),CommandArgument(%x)\r\n"),
+                        RETAILMSG(1, (_T("SDReadWriteRegistersDirect_I: queue request failed(0x%x),TransferClass(%x), CommandCode(%x),CommandArgument(%x)\r\n"),
                             status, pCur->TransferClass, pCur->CommandCode,pCur->CommandArgument));
                         break;
                     }
@@ -2493,8 +2640,20 @@ SD_API_STATUS CSDDevice::SDReadWriteRegistersDirect_I(SD_IO_TRANSFER_TYPE ReadWr
                     pCur = pCur->GetChildListNext();
                 }
                 // wait for the I/O to complete
-                if (!pNewRequest->IsComplete()) {
-                    VERIFY(WAIT_OBJECT_0 == WaitForSingleObject(hSynchEvent, INFINITE));
+                if (!pNewRequest->IsComplete()) 
+                {
+                    DEBUGMSG(SDCARD_ZONE_ERROR, (TEXT("CSDDevice::SDReadWriteRegistersDirect_I  Waiting until request is complete. \n")));
+                    if (WAIT_OBJECT_0 != WaitForSingleObject(hSynchEvent, TWO_SEC_TIMEOUT))
+                    {
+                        RETAILMSG(1, (TEXT("CSDDevice::SDReadWriteRegistersDirect_I  Request timed out. \n")));
+                        m_sdSlot.CancelRequestFromHC(pNewRequest);
+                        pNewRequest->CompleteBusRequest(status);
+                        bResponseTimedOut = TRUE;
+                    }
+                    else
+                    {
+                        DEBUGMSG(SDCARD_ZONE_ERROR, (TEXT("CSDDevice::SDReadWriteRegistersDirect_I  Request completed. \n")));
+                    }
                 }
                 ASSERT(pNewRequest->IsComplete());
                 sdRequest = *(SD_BUS_REQUEST *)pNewRequest;
@@ -2505,7 +2664,7 @@ SD_API_STATUS CSDDevice::SDReadWriteRegistersDirect_I(SD_IO_TRANSFER_TYPE ReadWr
                 delete pNewRequest;
             }
 
-            if (SD_API_SUCCESS(status)) {
+            if (SD_API_SUCCESS(status) && bResponseTimedOut == FALSE) {
                 UCHAR responseStatus = SD_GET_IO_RW_DIRECT_RESPONSE_FLAGS(&sdRequest.CommandResponse);
                 // mask out the previous CRC error, the command is retried on CRC errors
                 // so this bit will reflect the previous command instead
@@ -2524,6 +2683,12 @@ SD_API_STATUS CSDDevice::SDReadWriteRegistersDirect_I(SD_IO_TRANSFER_TYPE ReadWr
                     break;
                 }
             }
+            else if (bResponseTimedOut == TRUE)
+            {
+                //Sending a status of unsuccessful if it times out after 2 seconds.
+                status = SD_API_STATUS_DEVICE_NOT_RESPONDING;
+                break;
+            }
             else
                 break;
         };
@@ -2540,12 +2705,14 @@ SD_API_STATUS CSDDevice::SDReadWriteRegistersDirect_I(SD_IO_TRANSFER_TYPE ReadWr
 
     return (status);
 };
+
 SD_API_STATUS CSDDevice::SDSynchronousBusRequest_I(UCHAR Command, DWORD Argument,SD_TRANSFER_CLASS TransferClass,
         SD_RESPONSE_TYPE ResponseType,PSD_COMMAND_RESPONSE  pResponse,ULONG NumBlocks,ULONG BlockSize,PUCHAR pBuffer, DWORD  Flags,DWORD cbSize, PPHYS_BUFF_LIST pPhysBuffList )
 {
-    SD_API_STATUS   status = SD_API_STATUS_UNSUCCESSFUL;
-    HANDLE  hSynchEvent = NULL;
-    int iEventIndex = 0;
+    SD_API_STATUS   status              = SD_API_STATUS_UNSUCCESSFUL;
+    HANDLE          hSynchEvent         = NULL;
+    int             iEventIndex         = 0;
+    BOOL            bResponseTimedOut   = FALSE;
 
     hSynchEvent = TryGetSyncEventHandle(iEventIndex);
     if(hSynchEvent == NULL)
@@ -2600,8 +2767,20 @@ SD_API_STATUS CSDDevice::SDSynchronousBusRequest_I(UCHAR Command, DWORD Argument
         UnlockForChildRequests();
 
         // wait for the I/O to complete
-        if (!pNewRequest->IsComplete()) {
-            VERIFY(WAIT_OBJECT_0 == WaitForSingleObject(hSynchEvent, INFINITE));
+        if (!pNewRequest->IsComplete()) 
+        {
+            DEBUGMSG(SDCARD_ZONE_ERROR, (TEXT("CSDDevice::SDSynchronousBusRequest_I  Waiting until request is complete.\n")));
+            if (WAIT_OBJECT_0 != WaitForSingleObject(hSynchEvent, TWO_SEC_TIMEOUT))
+            {
+                RETAILMSG(1, (TEXT("CSDDevice::SDSynchronousBusRequest_I  Request timed out. \n")));
+                m_sdSlot.CancelRequestFromHC(pNewRequest);
+                pNewRequest->CompleteBusRequest(status );
+                bResponseTimedOut = TRUE;
+            }
+            else
+            {
+                DEBUGMSG(SDCARD_ZONE_ERROR, (TEXT("CSDDevice::SDSynchronousBusRequest_I  Request completed. \n")));
+            }
         }
         ASSERT(pNewRequest->IsComplete());
         sdRequest = *(SD_BUS_REQUEST *)pNewRequest;
@@ -2614,14 +2793,20 @@ SD_API_STATUS CSDDevice::SDSynchronousBusRequest_I(UCHAR Command, DWORD Argument
     else if (pNewRequest)
         delete pNewRequest;
 
-    if (SD_API_SUCCESS(status) && NULL != pResponse) {
-        __try {
+    if (SD_API_SUCCESS(status) && NULL != pResponse && bResponseTimedOut == FALSE) 
+    {
+        __try 
+        {
             *pResponse = sdRequest.CommandResponse ;
         } __except (SDProcessException(GetExceptionInformation())) {
             DEBUGMSG(SDCARD_ZONE_ERROR, (_T("SDCard: Access violation while copying command response to user buffer\r\n")));
             status = SD_API_STATUS_ACCESS_VIOLATION;
         };
-
+    }
+    else if (bResponseTimedOut == TRUE)
+    {
+        //Sending a status of unsuccessful if it times out after 2 seconds.
+        status = SD_API_STATUS_DEVICE_NOT_RESPONDING;
     }
 
     if(hSynchEvent){
@@ -2699,7 +2884,7 @@ SD_API_STATUS CSDDevice::SDBusRequest_I(UCHAR Command,DWORD Argument,SD_TRANSFER
             }
             else {
                 ASSERT(FALSE);
-                SDFreeBusRequest_I(sdBusRequestHandle.hValue);
+                status = SDFreeBusRequest_I(sdBusRequestHandle.hValue);
             }
         }
         else
@@ -2720,41 +2905,45 @@ SD_API_STATUS CSDDevice::SDBusRequest_I(UCHAR Command,DWORD Argument,SD_TRANSFER
 
 
 }
-VOID CSDDevice::SDFreeBusRequest_I(HANDLE hRequest)
+SD_API_STATUS CSDDevice::SDFreeBusRequest_I(HANDLE hRequest)
 {
-    SDBUS_REQUEST_HANDLE sdBusRequestHandle;
-    sdBusRequestHandle.hValue = hRequest;
-    BOOL fFreedRequest = FALSE;
-    if (hRequest && sdBusRequestHandle.bit.sd1f == 0x1f) {
+    SD_API_STATUS           status              = SD_API_STATUS_INVALID_PARAMETER;
+    SDBUS_REQUEST_HANDLE    sdBusRequestHandle  = {0};
+    sdBusRequestHandle.     hValue              = hRequest;    
+
+    if (hRequest && sdBusRequestHandle.bit.sd1f == 0x1f) 
+    {
         CSDBusRequest * pCurRequest = ObjectIndex(sdBusRequestHandle.bit.sdRequestIndex);
         if (pCurRequest ) {
-            if (pCurRequest->GetRequestRandomIndex() == sdBusRequestHandle.bit.sdRandamNumber) { // this is right requerst.
-                CSDBusRequest * pCurRequest2 = pCurRequest ;
-                while (pCurRequest2 ) {
-                    if (!pCurRequest2->IsComplete()) {
-                        m_sdSlot.RemoveRequest(pCurRequest2);
+            if (pCurRequest->GetRequestRandomIndex() == sdBusRequestHandle.bit.sdRandamNumber) { // this is right request.
+                __try {
+                    CSDBusRequest * pCurRequest2 = pCurRequest ;
+                    while (pCurRequest2 ) 
+                    {
+                        if (!pCurRequest2->IsComplete()) {
+                            m_sdSlot.RemoveRequest(pCurRequest2);
+                        }
+                        pCurRequest2 = pCurRequest2->GetChildListNext();
                     }
-                    pCurRequest2 = pCurRequest2->GetChildListNext();
+                    VERIFY(RemoveObjectBy(sdBusRequestHandle.bit.sdRequestIndex ));
+                    pCurRequest->TerminateLink();
+                    pCurRequest->DeRef();
+                    status = SD_API_STATUS_SUCCESS;
+                }__except(EXCEPTION_EXECUTE_HANDLER){
+                    status = SD_API_STATUS_INVALID_PARAMETER;
                 }
-                fFreedRequest = TRUE;
             }
-            else
-                ASSERT(FALSE);
-            VERIFY(RemoveObjectBy(sdBusRequestHandle.bit.sdRequestIndex ));
-            pCurRequest->TerminateLink();
-            pCurRequest->DeRef();
         }
-        else
-            ASSERT(FALSE);
     }
-    ASSERT(fFreedRequest);
-    DEBUGMSG(SDCARD_ZONE_ERROR && !fFreedRequest, (_T("SDFreeBusRequest_I: Invalid request h=0x%x\r\n"),hRequest));
+    DEBUGMSG(SDCARD_ZONE_ERROR && !SD_API_SUCCESS(status), (_T("SDFreeBusRequest_I: Invalid request h=0x%x\r\n"),hRequest));
+    return status;
 }
 SD_API_STATUS CSDDevice::SDBusRequestResponse_I(HANDLE hRequest, PSD_COMMAND_RESPONSE pSdCmdResp)
 {
-    SDBUS_REQUEST_HANDLE sdBusRequestHandle;
-    sdBusRequestHandle.hValue = hRequest;
-    SD_API_STATUS   status = SD_API_STATUS_INVALID_PARAMETER;  // intermediate status
+    SD_API_STATUS           status              = SD_API_STATUS_INVALID_PARAMETER;
+    SDBUS_REQUEST_HANDLE    sdBusRequestHandle  = {0};
+    sdBusRequestHandle.     hValue              = hRequest;
+
     if (hRequest && sdBusRequestHandle.bit.sd1f == 0x1f) {
         CSDBusRequest * pCurRequest = ObjectIndex(sdBusRequestHandle.bit.sdRequestIndex);
         if (pCurRequest ) {
@@ -2772,11 +2961,150 @@ SD_API_STATUS CSDDevice::SDBusRequestResponse_I(HANDLE hRequest, PSD_COMMAND_RES
     DEBUGMSG(SDCARD_ZONE_ERROR && !SD_API_SUCCESS(status), (_T("SDBusRequestResponse_I:  Invalid request h=0x%x\r\n"),hRequest));
     return status;
 }
+
+SD_API_STATUS CSDDevice::SDIOCheckHardware_I(SD_CARD_STATUS  *pCardStatus)
+{
+    SD_API_STATUS   status      = SD_API_STATUS_SUCCESS;
+    UCHAR           regValue    = 0;
+
+    DEBUGMSG(SDCARD_ZONE_INFO, (TEXT("CSDDevice::SDIOCheckHardware_I: Check Bus Connection - GetCardStatus! \n")));
+
+    // update the INT Enable register
+    CSDDevice * pDevice0 = m_sdSlot.GetFunctionDevice(0);
+
+    //For Now we check to see if we are able to set the interrupts.
+
+    if (pDevice0) 
+    {
+        //Set the adaptive control down to the lower device
+        status = pDevice0->SDIOSetAdaptiveControl_I(&m_AdaptiveControl);
+
+        // update shadow register , we automatically enable the master interrupt enable bit
+        pDevice0->m_SDCardInfo.SDIOInformation.pCommonInformation->CCCRShadowIntEnable |=
+                ((1 << m_SDCardInfo.SDIOInformation.Function) | SD_IO_INT_ENABLE_MASTER_ENABLE);
+
+        regValue = pDevice0->m_SDCardInfo.SDIOInformation.pCommonInformation->CCCRShadowIntEnable;
+
+        // check to see if there are interrupts to keep enabled
+        if (!(regValue & SD_IO_INT_ENABLE_ALL_FUNCTIONS)) {
+            // if none, then clear out master enable
+            regValue &= ~SD_IO_INT_ENABLE_MASTER_ENABLE;
+            pDevice0->m_SDCardInfo.SDIOInformation.pCommonInformation->CCCRShadowIntEnable = regValue;
+        }
+
+        status = pDevice0->SDReadWriteRegistersDirect_I(SD_IO_WRITE, SD_IO_REG_INT_ENABLE,FALSE, &regValue, 1);
+
+        if (status == SD_API_STATUS_SUCCESS)
+        {
+            //Turn the interrupt back off
+            regValue = 0;
+            status = pDevice0->SDReadWriteRegistersDirect_I(SD_IO_WRITE, SD_IO_REG_INT_ENABLE,FALSE, &regValue, 1);
+        }
+
+        pDevice0->DeRef();
+    }
+
+    return status;
+}
+
+SD_API_STATUS CSDDevice::SDIOSetAdaptiveControl_I(PSD_ADAPTIVE_CONTROL pAdaptiveControl)
+{
+    SD_API_STATUS   status  = SD_API_STATUS_SUCCESS;
+
+    if(!pAdaptiveControl)
+    {
+        status = SD_API_STATUS_INVALID_PARAMETER;
+        return status;
+    }
+    // update the Adaptive Control for Device0 too
+    CSDDevice * pDevice0 = m_sdSlot.GetFunctionDevice(0);
+    if (pDevice0 != this) 
+    {
+        status = pDevice0->SDIOSetAdaptiveControl_I(pAdaptiveControl);
+    }
+    m_AdaptiveControl = *pAdaptiveControl;
+    return status;
+}
+
+SD_API_STATUS CSDDevice::SDIOGetAdaptiveControl_I(PSD_ADAPTIVE_CONTROL pAdaptiveControl)
+{
+    SD_API_STATUS   status  = SD_API_STATUS_SUCCESS;
+    if(!pAdaptiveControl)
+    {
+        status = SD_API_STATUS_INVALID_PARAMETER;
+        return status;
+    }
+    *pAdaptiveControl = m_AdaptiveControl;
+    return status;
+}
+
+SD_API_STATUS CSDDevice::SDIOUpcallSetAdaptiveControl_I(PSD_ADAPTIVE_CONTROL pAdaptiveControl)
+{
+    SD_API_STATUS   status  = SD_API_STATUS_SUCCESS;
+    if(!pAdaptiveControl)
+    {
+        status = SD_API_STATUS_INVALID_PARAMETER;
+        return status;
+    }
+    m_AdaptiveControl = *pAdaptiveControl;
+    NotifyClient( SDSetAdaptiveControl );
+    return status;
+}
+
+SD_API_STATUS CSDDevice::SDIOUpcallGetAdaptiveControl_I(PSD_ADAPTIVE_CONTROL pAdaptiveControl)
+{
+    SD_API_STATUS   status  = SD_API_STATUS_SUCCESS;
+    if(!pAdaptiveControl)
+    {
+        status = SD_API_STATUS_INVALID_PARAMETER;
+        return status;
+    }
+    NotifyClient( SDGetAdaptiveControl );
+    *pAdaptiveControl = m_AdaptiveControl;
+    return status;
+}
+
+SD_API_STATUS CSDDevice::SDFreeAllOutStandingRequests_I()
+{
+    SD_API_STATUS   status          = SD_API_STATUS_SUCCESS;
+    BOOL            bOverallSuccess = TRUE;
+    DWORD           dwIndex         = 0;
+
+    for (DWORD dwIndex=0; dwIndex < m_dwArraySize ; dwIndex++ ) 
+    {
+        if( m_rgObjectArray[m_dwCurSearchIndex] ) 
+        {
+            // After this point the status should return during the completion.
+            SDBUS_REQUEST_HANDLE sdBusRequestHandle ;
+            sdBusRequestHandle.bit.sdBusIndex = m_sdSlot.GetHost().GetIndex();
+            sdBusRequestHandle.bit.sdSlotIndex = m_sdSlot.GetSlotIndex();
+            sdBusRequestHandle.bit.sdFunctionIndex = m_FuncionIndex;
+            sdBusRequestHandle.bit.sdRequestIndex = dwIndex;
+            sdBusRequestHandle.bit.sd1f = 0x1f;
+            sdBusRequestHandle.bit.sdRandamNumber =RawObjectIndex(m_dwCurSearchIndex)->GetRequestRandomIndex();
+
+            status = SDFreeBusRequest_I(sdBusRequestHandle.hValue);
+            if(!SD_API_SUCCESS(status))
+            {
+                bOverallSuccess = FALSE;
+                RETAILMSG(1, (TEXT("FAILED TO Free Bus Request %d out of %d\n" ), dwIndex, m_dwArraySize));
+            }
+        }
+    }
+    if(FALSE == bOverallSuccess)
+    {
+        status = SD_API_STATUS_UNSUCCESSFUL;
+    }
+    return status;
+}
+
 BOOL CSDDevice::SDCancelBusRequest_I(HANDLE hRequest)
 {
-    SDBUS_REQUEST_HANDLE sdBusRequestHandle;
+    SDBUS_REQUEST_HANDLE    sdBusRequestHandle  = {0};
+    BOOL                    fCanceledRequest    = FALSE;
+
     sdBusRequestHandle.hValue = hRequest;
-    BOOL fCanceledRequest = FALSE;
+
     if (hRequest && sdBusRequestHandle.bit.sd1f == 0x1f) {
         CSDBusRequest * pCurRequest = ObjectIndex(sdBusRequestHandle.bit.sdRequestIndex);
         if (pCurRequest ) {
@@ -2802,6 +3130,7 @@ BOOL CSDDevice::SDCancelBusRequest_I(HANDLE hRequest)
 void CSDDevice::HandleDeviceInterrupt()
 {
     SD_API_STATUS status = SD_API_STATUS_INVALID_HANDLE;
+
     if (m_SDCardInfo.SDIOInformation.pInterruptCallBack!=NULL) {
         DEBUGMSG(SDBUS_ZONE_DEVICE,(TEXT("HandleDeviceInterrupting - Calling interrupt handler for %s \n"),
             m_ClientName));
@@ -2826,13 +3155,13 @@ void CSDDevice::HandleDeviceInterrupt()
             }
         }
     }
-    ASSERT(SD_API_SUCCESS(status));
+    //ASSERT(SD_API_SUCCESS(status));
 }
 
 SD_API_STATUS CSDDevice::SDIOConnectDisconnectInterrupt(PSD_INTERRUPT_CALLBACK   pIsrFunction, BOOL Connect)
 {
-    UCHAR                       regValue;           // intermediate register value
-    SD_API_STATUS               status;             // intermediate status
+    UCHAR                       regValue    = 0; // intermediate register value
+    SD_API_STATUS               status      = SD_API_STATUS_INVALID_PARAMETER;
 
     if (Device_SD_IO != m_DeviceType) {
         DEBUGMSG(SDCARD_ZONE_ERROR, (TEXT("SDIOConnectDisconnectInterrupt: device is not SDIO ! \n")));
@@ -2901,8 +3230,15 @@ SD_API_STATUS CSDDevice::SDIOConnectDisconnectInterrupt(PSD_INTERRUPT_CALLBACK  
         m_SDCardInfo.SDIOInformation.pInterruptCallBack = NULL;
     } else {
         if (Connect) {
-            DEBUGMSG(SDBUS_ZONE_DEVICE, (TEXT("SDIOConnectDisconnectInterrupt: Interrupt enabled for function %d \n"),
-                m_SDCardInfo.SDIOInformation.Function));
+            if (status == SD_API_STATUS_PENDING)
+            {
+                status = SD_API_STATUS_UNSUCCESSFUL;  //we cannot be waiting for a pending status on enableing interrupts.
+            }
+            else
+            {
+                DEBUGMSG(SDBUS_ZONE_DEVICE, (TEXT("SDIOConnectDisconnectInterrupt: Interrupt enabled for function %d \n"),
+                    m_SDCardInfo.SDIOInformation.Function));
+            }
         } else {
             DEBUGMSG(SDBUS_ZONE_DEVICE, (TEXT("SDIOConnectDisconnectInterrupt: Interrupt disabled for function %d \n"),
                 m_SDCardInfo.SDIOInformation.Function));
@@ -2917,10 +3253,10 @@ SD_API_STATUS CSDDevice::SDIOConnectDisconnectInterrupt(PSD_INTERRUPT_CALLBACK  
 SD_API_STATUS CSDDevice::SwitchFunction(PSD_CARD_SWITCH_FUNCTION pSwitchData, BOOL fReadOnly)
 {
 
-    SD_API_STATUS  status = SD_API_STATUS_DEVICE_UNSUPPORTED ;
-    DWORD dwOutputFunctioGroup = 0xffffff;
+    SD_API_STATUS   status                  = SD_API_STATUS_DEVICE_UNSUPPORTED;
+    DWORD           dwOutputFunctioGroup    = 0xffffff;
     INT RetVal = 0;
-    
+
     if (m_DeviceType == Device_SD_Memory && m_sdSlot.GetNumOfFunctionDevice()<=1 && pSwitchData!=NULL ) {
         DWORD dwInputFunctionGroup = pSwitchData->dwSelectedFunction & 0xffffff;
         DWORD dwSCRVersion = GetBitSlice(m_CachedRegisters.SCR, sizeof(m_CachedRegisters.SCR), SD_SCR_VERSION_BIT_SLICE , SD_SCR_VERSION_SLICE_SIZE);
@@ -2948,7 +3284,7 @@ SD_API_STATUS CSDDevice::SwitchFunction(PSD_CARD_SWITCH_FUNCTION pSwitchData, BO
                 m_sdSlot.m_RequestLock.Lock();
                 DWORD dwStartTick = GetTickCount();
                 BOOL fContinue = TRUE;
-                DWORD dwParCounter = 0; 
+                DWORD dwParCounter = 0;
                 status = SD_API_STATUS_DEVICE_BUSY;
                 while (fContinue && GetTickCount()- dwStartTick  < pSwitchData->dwTimeOut ) {
                     // Send out CMD6 Mode 0 to read it.
@@ -3022,8 +3358,8 @@ SD_API_STATUS CSDDevice::SwitchFunction(PSD_CARD_SWITCH_FUNCTION pSwitchData, BO
 
 BOOL CSDDevice::MMCSwitchto8BitBusWidth()
 {
-    SD_API_STATUS  status = SD_API_STATUS_DEVICE_UNSUPPORTED;
-    BOOL fSwitchto8Bit =  FALSE;
+    SD_API_STATUS   status          = SD_API_STATUS_DEVICE_UNSUPPORTED;
+    BOOL            fSwitchto8Bit   = FALSE;
 
     //if host does not support 8bit mode, then return
     if((m_sdSlot.Capabilities & SD_SLOT_MMC_8BIT_CAPABLE) !=
@@ -3127,7 +3463,8 @@ Done:
 
 SD_API_STATUS CSDDevice::MMCSwitch(DWORD dwAccessMode,DWORD dwAccessIndex, DWORD dwAccessValue, DWORD dwCmdSet)
 {
-    SD_API_STATUS  status = SD_API_STATUS_DEVICE_UNSUPPORTED ;
+    SD_API_STATUS  status = SD_API_STATUS_DEVICE_UNSUPPORTED;
+
     if (m_DeviceType == Device_MMC && m_sdSlot.GetNumOfFunctionDevice()<=1 ) {
         DWORD dwArg = ((dwAccessMode & 3)<<24) | ((dwAccessIndex & 0xff)<<16) | ((dwAccessValue & 0xff)<<8) | (dwCmdSet&0x7);
         SD_COMMAND_RESPONSE response;  // response
@@ -3169,4 +3506,69 @@ BOOL CSDDevice::IsDriverEnabled()
         return FALSE;
 }
 
+SD_API_STATUS CSDDevice::HandleResumeDevice_I(DWORD  dwFunctNum)
+{
+    SD_API_STATUS       status      = SD_API_STATUS_SUCCESS;
+    SDCARD_DEVICE_TYPE  device0Type  = Device_Unknown;
 
+    //Only do this for function 0
+    if (dwFunctNum == 0)
+    {
+        device0Type = m_sdSlot.GetDevice0Type();
+        status = m_sdSlot.InitHardware(TRUE, device0Type);
+    }
+    return status;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+//  HandleResetDevice_I
+//  Input:  pDevice - the device instance
+//  Output:
+//  Notes:
+//      returns SD_API_STATUS
+///////////////////////////////////////////////////////////////////////////////
+SD_API_STATUS CSDDevice::HandleResetDevice_I(DWORD  dwFunctNum, SDCARD_DEVICE_TYPE device0Type)
+{
+    SD_API_STATUS       status      = SD_API_STATUS_SUCCESS;
+    BOOL                fSDIO       = FALSE;
+    BOOL                fSDMemory   = FALSE;
+    UCHAR               regValue    = 0;
+
+    //Only do this for function 0
+    if (dwFunctNum == 0)
+    {
+        if (device0Type == Device_SD_IO ||  device0Type == Device_SD_Combo ) 
+        {
+            fSDIO = TRUE;
+        }
+
+        if ((device0Type == Device_MMC) || (device0Type == Device_SD_Memory) || (device0Type == Device_SD_Combo)) 
+        {
+            fSDMemory = TRUE;
+        }
+
+        if (fSDIO == TRUE)
+        {
+            regValue = SD_IO_REG_IO_ABORT_RES;
+            //IO Reset CMD52
+            status = SDReadWriteRegistersDirect_I(SD_IO_WRITE,SD_IO_REG_IO_ABORT,FALSE,&regValue,1);
+            RETAILMSG(1,(TEXT("Function0: CMD52: SD_IO_WRITE, SD_IO_REG_IO_ABORT: %s"), 
+                SD_API_SUCCESS(status) ? (LPCWSTR)TEXT("Suceeded") : (LPCWSTR)TEXT("Failed")));
+
+            if (SD_API_SUCCESS(status))
+            {
+                m_SDCardInfo.SDIOInformation.pCommonInformation->CCCRShadowIOEnable = 0;
+            }
+        }
+
+        if (fSDMemory == TRUE)
+        {
+            status = SDSynchronousBusRequest_I(SD_CMD_GO_IDLE_STATE,SD_CMD_GO_IDLE_STATE,SD_COMMAND,NoResponse,
+                                NULL,0,0,NULL,(DWORD)SD_SLOTRESET_REQUEST);
+        }
+
+        m_RelativeAddress = 0;
+        m_bCardDeselectRequest = FALSE;
+    }
+    return status;
+}

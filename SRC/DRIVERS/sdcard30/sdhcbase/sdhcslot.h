@@ -62,8 +62,11 @@
 #include <SDCardDDK.h>
 #include <SDHCD.h>
 #include <ceddk.h>
+#include <windot11.h>
+#include <bldver.h>
 #include "SDHCRegs.h"
 #include "Sdhcdma.hpp"
+#include "SDHCPowerCtrlBase.hpp"
 #include "sd3voltage.h"
 
 #define SDHC_MAX_POWER_SUPPLY_RAMP_UP   250     // SD Phys Layer 6.6
@@ -84,12 +87,20 @@
 #define ADJUST_BUS_IDLE                 TRUE
 #define ADJUST_BUS_NORMAL               FALSE
 
+#define WORD_NOT_SET                    (WORD) -1
+
 #define SD3_POWERUP_START_DELAY         3
+
+#if (CE_MAJOR_VER > 7)
+typedef DOT11_PUBLIC_ADAPTIVE_CTRL SD_ADAPTIVE_CONTROL;
+typedef PDOT11_PUBLIC_ADAPTIVE_CTRL PSD_ADAPTIVE_CONTROL;
+#endif
 
 typedef class CSDHCSlotBase {
     friend class CSDHCSlotBaseDMA;
     friend class CSDHCSlotBaseSDMA;
     friend class CSDHCSlotBase32BitADMA2;
+    friend class CSDHCPowerCtrlBase;
 public:
     // Constructor - only initializes the member data. True initialization
     // occurs in Init().
@@ -134,9 +145,35 @@ public:
     virtual VOID HandleInterrupt();
 
     // Called by the controller to get the controller interrupt register.
-    inline WORD ReadControllerInterrupts() {
-        return ReadWord(SDHC_SLOT_INT_STATUS);
+    inline WORD ReadControllerInterrupts() 
+    {
+        m_ControllerInterrupts = ReadWord(SDHC_SLOT_INT_STATUS);
+        return m_ControllerInterrupts;
     }
+
+    //Factory Method for Creating Power Control
+    SD_API_STATUS CreatePowerCtrl(SDCARD_DEVICE_TYPE device0Type, PTCHAR loadPath);
+    // Place the slot into the desired power state.
+    virtual VOID    SetHardwarePowerState(CEDEVICE_POWER_STATE cpsNew);
+    //gets the local adaptive control from the slot
+    virtual SD_API_STATUS GetLocalAdaptiveControl(PSD_ADAPTIVE_CONTROL pAdaptiveControl);
+
+    BOOL                    IsPowerManaged () {return m_fIsPowerManaged;};
+    BOOL                    SleepsWithPower () {return m_fSleepsWithPower;};
+    BYTE                    WakeupControl () {return m_bWakeupControl;};
+
+    CEDEVICE_POWER_STATE    CurrentPowerState() {return m_cpsCurrent;};
+
+    VOID                    ControlCardPowerOff(
+                                BOOL *pbfKeepPower, 
+                                BOOL bResetOnSuspendResume, 
+                                BOOL bPwrControlOnSuspendResume);
+
+    VOID                    ControlCardPowerOn(
+                                BOOL bResetOnSuspendResume,
+                                BOOL bPwrControlOnSuspendResume);
+
+    VOID        RestoreInterrupts(BOOL UseNewRestoreMethod);
 
 protected:
     CSDHCSlotBase(const CSDHCSlotBase&); 
@@ -165,19 +202,30 @@ protected:
     virtual VOID SetPowerState(CEDEVICE_POWER_STATE cpsNew);
 
     // Get the capabilities register.
-    virtual SSDHC_CAPABILITIES GetCapabilities() {
-        SSDHC_CAPABILITIES caps;
-        caps.dw = ReadDword(SDHC_CAPABILITIES);
-        return caps;
+    virtual SSDHC_CAPABILITIES GetCapabilities()
+    {
+        SSDHC_CAPABILITIES pCaps = {0};
+        if (m_pCaps != NULL)
+        {
+            m_pCaps->dw = ReadDword(SDHC_CAPABILITIES);
+            return *m_pCaps;
+        }
+        return pCaps;
     }
 
-    virtual SSDHC_VERSION GetSDHCVersion() {
-        SSDHC_VERSION version;
-        version.uw = ReadWord(SDHC_HOST_CONTROLLER_VER);
-        return version;
+    virtual SSDHC_VERSION GetSDHCVersion()
+    {
+        SSDHC_VERSION pVersion = {0};
+        if (m_pVersion != NULL)
+        {
+            m_pVersion->uw = ReadWord(SDHC_HOST_CONTROLLER_VER);
+            return *m_pVersion;
+        }
+        return pVersion;
     }
+
     // Fill in the slot info structure.
-    virtual SD_API_STATUS GetSlotInfo(PSDCARD_HC_SLOT_INFO pSlotInfo);
+    virtual SD_API_STATUS InitSlotInfo(PSDCARD_HC_SLOT_INFO pSlotInfo);
 
     // Get the desired Vdd window.
     virtual DWORD GetDesiredVddWindow();
@@ -186,8 +234,10 @@ protected:
     virtual DWORD GetMaxVddWindow();
 
     // Is the card write-protected?
-    virtual BOOL IsWriteProtected() {
-        return ((ReadDword(SDHC_PRESENT_STATE) & STATE_WRITE_PROTECT) == 0);
+    virtual BOOL IsWriteProtected() 
+    {
+        m_IsWriteProtected = ReadDword(SDHC_PRESENT_STATE);
+        return ((m_IsWriteProtected & STATE_WRITE_PROTECT) == 0);
     }
 
     // Enable/disable SDIO card interrupts.
@@ -195,9 +245,14 @@ protected:
 
     // How much extra time in ms for initial clocks is needed upon
     // insertion of a card for the power supply ramp up?
-    virtual DWORD GetPowerSupplyRampUpMs() {
-        return m_pregDevice->ValueDW(SDHC_POWER_UP_DELAY_KEY,
-            SDHC_MAX_POWER_SUPPLY_RAMP_UP);
+    virtual DWORD GetPowerSupplyRampUpMs() 
+    {
+        if (m_dwPowerSupplyRampUpMs == -1)
+        {
+            m_dwPowerSupplyRampUpMs = m_pregDevice->ValueDW(SDHC_POWER_UP_DELAY_KEY,
+                SDHC_MAX_POWER_SUPPLY_RAMP_UP);
+        }
+        return m_dwPowerSupplyRampUpMs;
     }
     
     // Register access routines. These are not virtual so that we get
@@ -245,6 +300,9 @@ protected:
     virtual VOID HandleTransferDone();
     virtual VOID HandleReadReady();
     virtual VOID HandleWriteReady();
+    virtual SD_API_STATUS HandleSuspend(BOOL fCancelRequest);
+    virtual SD_API_STATUS HandleResume();
+    virtual VOID HandleSlotReset(BOOL fCancelRequest);
     virtual PVOID SlotAllocDMABuffer(ULONG Length,PPHYSICAL_ADDRESS  LogicalAddress,BOOLEAN CacheEnabled );
     virtual BOOL SlotFreeDMABuffer( ULONG Length,PHYSICAL_ADDRESS  LogicalAddress,PVOID VirtualAddr,BOOLEAN CacheEnabled );
 
@@ -254,9 +312,6 @@ protected:
 
     // Frees the physical buffer.
     virtual VOID FreePhysBuffer(PVOID pv);
-
-    // Place the slot into the desired power state.
-    virtual VOID SetHardwarePowerState(CEDEVICE_POWER_STATE cpsNew);
 
     // Performs the actual enabling/disabling of SDIO card interrupts.
     virtual VOID DoEnableSDIOInterrupts(BOOL fEnable);
@@ -285,11 +340,34 @@ protected:
     // Calls SDHCDGetAndLockCurrentRequest.
     virtual PSD_BUS_REQUEST GetAndLockCurrentRequest();
 
+    virtual VOID UnlockCurrentRequest(PSD_BUS_REQUEST pRequest);
+
     // Calls SDHCDPowerUpDown.
     virtual VOID PowerUpDown(BOOL fPowerUp, BOOL fKeepPower);
 
     // Calls SDHCDIndicateBusRequestComplete.
     virtual VOID IndicateBusRequestComplete(PSD_BUS_REQUEST pRequest, SD_API_STATUS status);
+
+    //Updates the HC Owned Request
+    virtual VOID UpdateCurrentHCOwned(PSD_BUS_REQUEST pRequest);
+
+    //Checks the hardware
+    virtual SD_API_STATUS CheckHardware(PSD_CARD_STATUS pCardStatus);
+
+    //sets the adaptive control of the upper driver
+    virtual SD_API_STATUS UpcallSetAdaptiveControl(PSD_ADAPTIVE_CONTROL pAdaptiveControl);
+
+    //gets the adaptive control from the upper driver
+    virtual SD_API_STATUS UpcallGetAdaptiveControl(PSD_ADAPTIVE_CONTROL pAdaptiveControl);
+
+    //frees all the outstanding requests
+    virtual SD_API_STATUS FreeAllOutStandingRequests();
+
+    //synchronous slot event
+    virtual SD_API_STATUS SynchronousSlotStateChange(SD_SLOT_EVENT Event);
+
+    //Added to follow the flow diagram in SDHC 2.0 Spec
+    virtual SD_API_STATUS HandleResetDevice();
 
     // Finds the closest rate that is *pdwRate or lower. Stores the
     // actual rate in *pdwRate.
@@ -313,9 +391,14 @@ protected:
 
     // Handle Idle bus case
     virtual VOID IdleBusAdjustment(BOOL Idle);
-    
+
+    virtual VOID InitCard();
+
+    virtual BOOL CheckHardwareStatus();
+
     // 1.8 signaling switch
     SD_API_STATUS DoHWVoltageSwitch();
+
 #ifdef DEBUG
     // Print out the standard host register set.
     virtual VOID DumpRegisters();
@@ -329,16 +412,25 @@ protected:
         DEBUGCHK(dwOffset < sizeof(SSDHC_REGISTERS));
         DEBUGCHK( (dwOffset + dwRegSize) <= sizeof(SSDHC_REGISTERS));
     }
-
 #else
     // These routines do nothing in non-debug builds.
     inline VOID DumpRegisters() {}
     inline VOID Validate() {}
     inline VOID CheckRegOffset(DWORD /*dwOffset*/, DWORD /*dwRegSize*/) {}
 #endif
-    BOOL                    m_fUhsIsEnabled;           
+
+private:
+    VOID        CancelRequest();
+    VOID        WaitForRequestComplete();
+    VOID        EnableWakeUpSources();
+    HANDLE      m_hRequestCompletedEvent;
+
+
+protected:
+    BOOL                    m_fUhsIsEnabled;
     CReg                   *m_pregDevice;           // pointer to device registry key
-    CSDHCSlotBaseDMA        *m_SlotDma;             // DMA object
+    CSDHCSlotBaseDMA       *m_SlotDma;              // DMA object
+    CSDHCPowerCtrlBase     *m_pSDHCPowerCtrlBase;   // Slot power control object
     DWORD                   m_dwSlot;               // physical slot number
     volatile BYTE          *m_pbRegisters;          // memory-mapped registers
 
@@ -360,6 +452,12 @@ protected:
 
     DWORD                   m_dwDefaultWakeupControl;   // wakeup source list 
     BYTE                    m_bWakeupControl;           // current wakeup interrupts
+    UCHAR                   m_OldVoltage;               // voltage at power down
+    SSDHC_VERSION           *m_pVersion;                // version
+    SSDHC_CAPABILITIES      *m_pCaps;                   // capabilities
+    WORD                    m_ControllerInterrupts;     // controller interrupts
+    DWORD                   m_IsWriteProtected;         // write protected flag
+    SD_CARD_RCA             m_CardRCA;                  // card relative address
 
 #ifdef DEBUG
     DWORD                   m_dwReadyInts;          // number of Read/WriteReady interrupts that have occurred
@@ -373,20 +471,23 @@ protected:
     DWORD                   m_dwFastPathTimeoutTicks;
 
     DWORD                   m_dwPollingModeSize;
+    DWORD                   m_dwPowerSupplyRampUpMs;
 
-    BOOL                    m_fSleepsWithPower;         // keep power in PowerDown()?
-    BOOL                    m_fPowerUpDisabledInts;     // did PowerUp disable SDIO card interrupts?
-    BOOL                    m_fIsPowerManaged;          // is the power manager handling us?
-    BOOL                    m_fSDIOInterruptsEnabled;   // are SDIO card interrupts enabled?
-    BOOL                    m_fCardPresent;             // is a card present
-    BOOL                    m_fAutoCMD12Success;        // AutoCMD12 success
-    BOOL                    m_fCheckSlot;               // does HandleInterrupt() need to be run?
-    BOOL                    m_fCanWakeOnSDIOInterrupts; // can wake on SDIO interrupts
-    BOOL                    m_f4BitMode;                // 4 bit bus mode?
-    BOOL                    m_fFakeCardRemoval;         // should we simulate card removal?    
-    BOOL                    m_fCommandPolling; 
-    BOOL                    m_fDisableDMA;              // Disable The DMA
-    BOOL                    m_Idle1BitIRQ;              // move to 1-bit mode when idle and expecting IRQ
+    BOOL                    m_fSleepsWithPower : 1;         // keep power in PowerDown()?
+    BOOL                    m_fPowerUpDisabledInts : 1;     // did PowerUp disable SDIO card interrupts?
+    BOOL                    m_fIsPowerManaged : 1;          // is the power manager handling us?
+    BOOL                    m_fSDIOInterruptsEnabled : 1;   // are SDIO card interrupts enabled?
+    BOOL                    m_fCardPresent : 1;             // is a card present
+    BOOL                    m_fAutoCMD12Success : 1;        // AutoCMD12 success
+    BOOL                    m_fCheckSlot : 1;               // does HandleInterrupt() need to be run?
+    BOOL                    m_fCanWakeOnSDIOInterrupts : 1; // can wake on SDIO interrupts
+    BOOL                    m_f4BitMode : 1;                // 4 bit bus mode?
+    BOOL                    m_fFakeCardRemoval : 1;         // should we simulate card removal?
+    BOOL                    m_fCommandPolling: 1; 
+    BOOL                    m_fDisableDMA:1;                // Disable The DMA
+    BOOL                    m_Idle1BitIRQ : 1;              // move to 1-bit mode when idle and expecting IRQ
+    BOOL                    m_fSuspended: 1;
+
 } *PCSDHCSlotBase;
 
 

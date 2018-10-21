@@ -62,8 +62,8 @@ IF BSP_IOH_I2C
 	"ProgIF"=dword:00
 	"IsrDll"="giisr.dll"
 	"IsrHandler"="ISRHandler"
-	"VendorID"=multi_sz:"8086","8086","8086","8086","8086","8086","8086"
-	"DeviceID"=multi_sz:"0F47","0F46","0F45","0F44","0F43","0F42","0F41"
+	"VendorID"=multi_sz:"8086","8086","8086","8086","8086","8086","8086","8086","8086","8086","8086","8086","8086","8086"
+	"DeviceID"=multi_sz:"0F47","0F46","0F45","0F44","0F43","0F42","0F41","22C7","22C6","22C5","22C4","22C3","22C2","22C1"
 	"IClass"="{A32942B7-920C-486b-B0E6-92A702A99B35}"
 
 ENDIF BSP_IOH_I2C

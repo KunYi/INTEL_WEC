@@ -54,6 +54,7 @@ CReg16550::CReg16550(__in_bcount(dwStride*(SCRATCH_REGISTER+1)) PBYTE pRegAddr, 
     m_pSRC  =  pRegAddr + (dwStride * SCRATCH_REGISTER);
     m_pCLK =   (PULONG)(pRegAddr + (PRV_CLOCKS));
     m_FCR = 0;
+    m_pGeneral = pRegAddr + PRV_GENERAL;
     m_fIsBackedUp = FALSE;
 }
 void CReg16550::Backup()
@@ -190,15 +191,21 @@ BOOL CReg16550::Write_BaudRate(UINT16 uData)
 @retval BOOL [@ref OUT]  Contains the result for the concerned 
 attempt.The result TRUE for success and FALSE for filure.
 */
-
+//Auto Flow Control is used case when RTS_CONTROL_ENABLE is used
 BOOL CReg16550::SetAutoFlowCtl(BOOL bEnable)   
 {
     UINT16 mcr = Read_MCR();
+    UINT8  general = Read_GenConfig();
+
     if(TRUE == bEnable )
     {
+        //clear PRV_GENERAL bit3 to disable overriding RTS when autoflow control is used
+        Write_GenConfig(general & ~GENERAL_SERIAL_MANUAL_RTS);
         DEBUGMSG(ZONE_INIT | ZONE_FUNCTION,
             (TEXT("bEnable = TRUE. Setting 5th bit of Modem control register")));
         Write_MCR((UINT8)(mcr | SERIAL_MCR_AFCE));
+        DEBUGMSG(ZONE_INIT | ZONE_FUNCTION,
+            (TEXT("Clearing bit 3 of PRV_GENERAL register to disable Manual RTS when AutoFlowCtl is enable")));
         DEBUGMSG(TRUE,(TEXT("SetAutoFlowCtl %0X"),Read_MCR()));
     }
     else
@@ -206,6 +213,11 @@ BOOL CReg16550::SetAutoFlowCtl(BOOL bEnable)
         DEBUGMSG(ZONE_INIT|ZONE_FUNCTION,
             (TEXT("bEnable = FALSE. Clearing 5th bit of Modem control register")));
         Write_MCR((UINT8)(mcr & (~SERIAL_MCR_AFCE)));
+        DEBUGMSG(ZONE_INIT | ZONE_FUNCTION,
+            (TEXT("Setting bit 3 of PRV_GENERAL register to enable Manual RTS when AutoFlowCtl is disabled")));
+        //clear PRV_GENERAL bit3
+        Write_GenConfig(general | GENERAL_SERIAL_MANUAL_RTS);
+        DEBUGMSG(TRUE,(TEXT("SetAutoFlowCtl - Curr MSR = %0X"),Read_MCR()));
     }
     
     return TRUE;
@@ -337,10 +349,6 @@ BOOL CPdd16550::CreateHardwareAccess()
         }
             
     }
-    if(m_pReg16550)
-    {
-        SetAutoFlowCtlEnable(TRUE);
-    }
     return (m_pReg16550!=NULL);
 }
 #define MAX_RETRY 0x1000
@@ -408,8 +416,6 @@ BOOL CPdd16550::InitialEnableInterrupt(BOOL bEnable )
     CSerialPDD::InitialEnableInterrupt(bEnable );
     if (bEnable) 
         m_pReg16550->Write_IER(IER_NORMAL_INTS);
-    else
-        m_pReg16550->Write_IER(SERIAL_IER_MS);
     m_HardwareLock.Unlock();
     return TRUE;
 }
@@ -463,7 +469,7 @@ void    CPdd16550::XmitInterruptHandler(PUCHAR pTxBuffer, ULONG *pBuffLen)
         PulseEvent(m_XmitFlushDone);
         DWORD dwDataAvaiable = *pBuffLen;
         *pBuffLen = 0;
-        if ((m_DCB.fOutxCtsFlow && IsCTSOff()) ||(m_DCB.fOutxDsrFlow && IsDSROff())) { // We are in flow off
+        if ((m_DCB.fOutxCtsFlow && IsCTSOff())) { //in flow off
             DEBUGMSG(ZONE_THREAD|ZONE_WRITE,(TEXT("CPdd16550::XmitInterruptHandler! Flow Off, Data Discard.\r\n")));
             EnableXmitInterrupt(FALSE);
             m_fXmitFlowOff = TRUE;
@@ -620,8 +626,8 @@ BOOL    CPdd16550::InitModem(BOOL bInit)
     if (bInit) {
         //m_pReg16550->Write_MCR(SERIAL_MCR_IRQ_ENABLE);
         m_pReg16550->Write_FCR( m_pReg16550->Read_FCR() | SERIAL_FCR_ENABLE);
-        SetAutoFlowCtlEnable(TRUE);
-        m_pReg16550->Write_IER( m_pReg16550->Read_IER() | SERIAL_IER_MS);
+        //m_pReg16550->Write_IER( m_pReg16550->Read_IER() | SERIAL_IER_MS);
+        m_pReg16550->Write_IER( m_pReg16550->Read_IER());
         m_pReg16550->Read_MSR(); // Clean the Interrupt First.
     }
     else {
@@ -667,7 +673,7 @@ ULONG   CPdd16550::GetModemStatus()
 void   CPdd16550::ModemInterruptHandler()
 { 
     GetModemStatus();
-    if (m_fXmitFlowOff && !((m_DCB.fOutxCtsFlow && IsCTSOff()) ||(m_DCB.fOutxDsrFlow && IsDSROff()))) { // We are in flow on
+    if (m_fXmitFlowOff && !((m_DCB.fOutxCtsFlow && IsCTSOff()))) { // in flow on
         DEBUGMSG(ZONE_THREAD|ZONE_WRITE,(TEXT("CPdd16550::ModemInterruptHandler! Flow On, Retriggering Xmit\r\n")));
         m_InterruptLock.Lock();
         m_dwInterruptFlag |= INTR_TX ; // Re-trigger xmitting.
@@ -697,6 +703,7 @@ void    CPdd16550::SetRTS(BOOL bSet)
     else
         bData &= ~SERIAL_MCR_RTS;
     m_pReg16550->Write_MCR(bData);
+    DEBUGMSG(TRUE, (TEXT("In SetRTS - MSR: 0x%X\n"), bData));
     m_HardwareLock.Unlock();
 
 }
@@ -919,19 +926,6 @@ BOOL CPdd16550::SetAutoFlowCtlEnable(BOOL bFlagAFE)
     BOOL bRetVal = TRUE;
     DEBUGMSG(ZONE_INIT | ZONE_FUNCTION,
         (TEXT("Inside function CPdd16550::SetAutoFlowEnable. Calling CReg16550::SetAutoFlowCtl")));
-    /*if(bFlagAFE)
-    {
-            bRetVal = FALSE;
-    }        
-    else
-    if(FALSE == m_pReg16550->SetAutoFlowCtl(bFlagAFE))
-    {
-        bRetVal = FALSE;
-    }*/
-
-    if(bFlagAFE)
-    {
         bRetVal = m_pReg16550->SetAutoFlowCtl(bFlagAFE);
-    }
     return bRetVal;
 }

@@ -646,6 +646,8 @@ static void GetPciRoutingIrqTable()
     
     OALMSG(OAL_ERROR,(L"GetPicRoutingIrqTable: Failed\r\n"));
 }
+#ifndef APIC
+// When APIC, this function is implemented in intel_cs\src\common\pdqoal\mpsupport\apic.cpp
 
 //------------------------------------------------------------------------------
 //
@@ -821,6 +823,8 @@ BOOL OALIntrRequestIrqs(
     }
     return FALSE;
 }
+
+#endif  // APIC
 
 BOOL PCIInitConfigMechanism (UCHAR ucConfigMechanism);
 

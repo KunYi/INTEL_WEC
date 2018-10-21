@@ -3,8 +3,8 @@ IF BSP_IOH_HSUART
 [HKEY_LOCAL_MACHINE\Drivers\BuiltIn\PCI\Template\HSUART]
 	"Dll"="hsuart.dll"
 	"Prefix"="COM"
-	"VendorID"=multi_sz:"8086","8086"
-	"DeviceID"=multi_sz:"0F0A","0F0C"
+	"VendorID"=multi_sz:"8086","8086","8086","8086"
+	"DeviceID"=multi_sz:"0F0A","0F0C","228A","228C"
 	"DeviceArrayIndex"=dword:1
     "IsrDll"="hsuartisr.dll"
 	"IsrHandler"="ISRHandler"

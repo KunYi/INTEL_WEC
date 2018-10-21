@@ -23,7 +23,7 @@
 #include <nkintr.h>
 #include <oalintr.h>
 #include <ceddk.h>
-#include "pc.h"
+#include "pc_smp.h"
 #include "timer.h"
 #include <oemwake.h>
 #include <oal.h>
@@ -34,8 +34,8 @@ extern void KernelInitialize();
 static UCHAR PICGetCurrentInterrupt();
 
 extern DWORD g_dwOALTimerCount;
-int (*PProfileInterrupt)(void);
 
+int (*PProfileInterrupt)(void);
 //
 // Warm reset handling
 // 
@@ -440,6 +440,7 @@ static UCHAR PICGetCurrentInterrupt()
     return ucCurrentInterrupt;
 }
 
+#ifndef APIC
 //------------------------------------------------------------------------------
 //
 //  Function:  OALIntrEnableIrqs
@@ -498,4 +499,4 @@ void OALIntrDoneIrqs(
     }        
 }
 
-
+#endif

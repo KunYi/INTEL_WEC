@@ -80,7 +80,7 @@ DBGPARAM dpCurSettings = {
             _T("Device Load"),_T("Bus Requests"),_T("Buffer Dumps"),_T("Soft-Block"),
             _T(""), _T(""), _T(""), _T(""),
             _T(""), _T("Init"), _T("Warnings"), _T("Errors") },
-            ZONE_ENABLE_INIT | ZONE_ENABLE_ERROR | ZONE_ENABLE_WARN };
+            /*ZONE_ENABLE_INIT | ZONE_ENABLE_ERROR | ZONE_ENABLE_WARN*/0xffffffff };
 #endif
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -218,6 +218,41 @@ DWORD SDProcessException(LPEXCEPTION_POINTERS pException)
     }
 
     return EXCEPTION_EXECUTE_HANDLER;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+//  SDPerformSafeCopy - perform a safe memory copy
+//  Input:  pSource   - source data
+//          Length    - number of bytes to copy
+//  Output: pDestination - Destination of the copy
+//  Return:  returns TRUE if the copy succeeded, FALSE if an exception  occured
+//  Notes:  
+//
+///////////////////////////////////////////////////////////////////////////////
+BOOLEAN SDPerformSafeCopy(
+    __out_bcount(Length)    PVOID pDestination, 
+    __in_bcount(Length)     const VOID *pSource,
+                            ULONG Length)
+{
+    BOOLEAN success = FALSE;
+
+    if ( !( ( (ULONG) pDestination + Length < Length) || ( (ULONG) pSource + Length < Length) ) ) {
+        __try {
+            // do the mem copy in a try except block
+            memcpy(pDestination, pSource, Length);
+            success = TRUE;
+        } __except (SDProcessException(GetExceptionInformation())) {
+            // Nothing to do.
+        }
+    }
+    // else overflow would occur
+
+    if (success == FALSE) {
+        RETAILMSG(1, (TEXT("SDPerformSafeCopy (Dest: 0x%08X) (Src: 0x%08X) (Size:%d) access violation \n"), 
+            pDestination, pSource, Length));
+    }
+
+    return success;
 }
 
 ///////////////////////////////////////////////////////////////////////////////

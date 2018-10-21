@@ -99,7 +99,11 @@ void  PCIInitBusInfo (void);
 DWORD OEMPowerManagerInit(void);
 void  InitClock(void);
 void  x86InitMemory (void);
+#ifndef APIC
 void  x86InitPICs(void);
+#else
+void  x86InitAPICs(void); 
+#endif
 void  x86RebootInit(void);
 void  RTCPostInit();
 void  QPCPostInit();
@@ -108,6 +112,14 @@ extern LPCWSTR g_pPlatformManufacturer;
 extern LPCWSTR g_pPlatformName;
 static BOOL g_fPostInit;
 void OALMpInit (void);
+
+#define GET_DWORD_FROM_OFFSET(base, offset) (*((volatile DWORD *)((BYTE*)base+(offset))))
+#define GET_WORD_FROM_OFFSET(base, offset) (*((volatile WORD *)((BYTE*)base+(offset))))
+#define GET_BYTE_FROM_OFFSET(base, offset) (*((volatile BYTE *)((BYTE*)base+(offset))))
+
+#define SET_DWORD_FROM_OFFSET(base, offset, data) ((*((volatile DWORD *)((BYTE*)base+(offset)))) = data )
+#define SET_WORD_FROM_OFFSET(base, offset, data) ((*((volatile WORD *)((BYTE*)base+(offset)))) = data)
+#define SET_BYTE_FROM_OFFSET(base, offset, data) ((*((volatile BYTE *)((BYTE*)base+(offset)))) = data)
 
 extern ULONG
 PCIWriteBusData(
@@ -158,11 +170,14 @@ void disLegacyUsbSupport(void);
 #define INTEL_LPC_DEVICEID_ICH10D 0x3A14
 
 #define INTEL_LPC_DEVICEID_NM10   0x27bc
+#define INTEL_LPC_DEVICEID_BYT		0x0f1c
 #ifdef BSP_UEFI
 extern IRQ_TO_PIRQ_TBL     g_Irq2PirqTbl[MAX_PIRQ_NUM];
 extern IRQ_INFO_TBL        g_IrqAssignedInfoTbl[MAX_PIRQ_NUM];
 extern DWORD g_dwInfoInx;
 #endif
+
+#define OAL_LOG_LEGUSB_SMI FALSE
 //------------------------------------------------------------------------------
 //
 // x86InitRomChain
@@ -284,16 +299,7 @@ void x86SetLPCRegister()
     {
         data1 |= (g_Irq2PirqTbl[i].bIRQX << (i*8));
     }
-        
-#if 0
-    // PIRQE-H is not routed to 8259, so we can not set value,
-    // if we to set value, the PS2 devic will work failed.
-    for(i = 4; i < 8; i++)
-        data2 |= g_Irq2PirqTbl[i].bIRQX << i*8;
-           
-    PCIWriteBusData(0,31,0,&data2,0x68,4);
-    PCIReadBusData(0,31,0,&data2,0x68,4);
-#else
+    
 #ifdef ENABLE_NM10
     //PIRQE-H routing, enable IRQ5 for NM10 Ethernet
     data2 = 0x80808005;
@@ -302,8 +308,7 @@ void x86SetLPCRegister()
 #endif
     PCIWriteBusData(0,31,0,&data2,0x68,4);
     PCIReadBusData(0,31,0,&data2,0x68,4);
-#endif
-    
+
     PCIWriteBusData(0,31,0,&data1,0x60,4);
     PCIReadBusData (0,31,0,&data1,0x60,4);
     OALMSG(OAL_LOG_INFO,(TEXT("INTA-D Routing @ 60 = %x\r\n"),data1));
@@ -328,12 +333,13 @@ void x86SetLPCRegister()
             data2 |= (1 << (g_IrqAssignedInfoTbl[i].bIRQX - 8));
         }
     }
-    
+#ifndef APIC    
     WRITE_PORT_UCHAR ((PUCHAR) 0x4D0, (UCHAR) data1);
     data1 = (UCHAR) READ_PORT_UCHAR ((PUCHAR) 0x4D0);
     WRITE_PORT_UCHAR ((PUCHAR) 0x4D1, (UCHAR) data2);
     data2 = (UCHAR) READ_PORT_UCHAR ((PUCHAR) 0x4D1);
     OALMSG(OAL_LOG_INFO,(TEXT("PIC intr trigger master[%x] & slave[%x]\r\n"), data1, data2 ));
+#endif
 }
 #endif // BSP_UEFI
 
@@ -359,10 +365,10 @@ void OEMInit()
 
     // initialize interrupts
     OALIntrInit ();
-
+#ifndef APIC
     // initialize PIC
     x86InitPICs();
-
+#endif
 #ifdef BSP_UEFI
     // Find ACPI table for proliferate PCI routing later
     x86InitACPITables();
@@ -390,9 +396,11 @@ void OEMInit()
     g_oalIoCtlPlatformName = g_pPlatformName;
 
     OEMPowerManagerInit();
-    
+
+#ifndef APIC
     // initialize clock
     InitClock();
+#endif
 
     // initialize memory (detect extra ram, MTRR/PAT etc.)
     x86InitMemory ();
@@ -429,6 +437,22 @@ void OEMInit()
     g_pOemGlobal->dwDefaultThreadQuantum = 10; // 10 milliseconds
 
     OALMpInit ();
+
+#ifdef APIC
+	// this assembly code disables any old PIC interrupt
+	__asm
+	{
+		mov al, 0xff
+			out 0xa1, al
+			out 0x21, al
+	}
+
+	// start APIC
+	x86InitAPICs();
+
+	// initialize clock
+	InitClock();
+#endif
 
 #ifdef DEBUG
     NKOutputDebugString (TEXT("Firmware Init Done.\r\n"));
@@ -503,9 +527,11 @@ void disLegacyUsbSupport(void)
 {
     USHORT deviceId;
     ULONG  pmBase;
+	ULONG  acpiBase;
     ULONG  data;
     ULONG  usb1Addr, usb2Addr, usb3Addr;
     ULONG  usb4Addr, usb5Addr, usb6Addr;
+	ULONG  mmioBase;
 
     /* Begin Disable NATIVE PCI of Cantiga SATA controller */
     PCIReadBusData(0x0, 0x1f, 0x2, &deviceId,0x02, 2); //should be 2928 //
@@ -967,8 +993,84 @@ void disLegacyUsbSupport(void)
         PCIWriteBusData(0x0, 0x1d, 0x2, &(PVOID)data, 0xC0, 1);
         data = 0xff;
         PCIWriteBusData(0x0, 0x1d, 0x2, &(PVOID)data, 0xC1, 1);
-    }
-    else 
+	} else if(deviceId == INTEL_LPC_DEVICEID_BYT) {
+		DWORD pIlbBaseVA;
+		DWORD pIlbBasePA;
+		BOOL  f_ehciPresent = FALSE;
+
+		PCIReadBusData(0x0, 0x1d, 0x0, &(PVOID)mmioBase, 0x10, 4);
+		if(mmioBase != 0xffffffff) {
+			f_ehciPresent = TRUE;
+		}
+		mmioBase &= 0xfffffc00;
+		PCIReadBusData(0x0,0x1f,0x0,&(PVOID)acpiBase, 0x40, 2);
+		acpiBase &= 0xfff8;
+		PCIReadBusData(0x0,0x1f,0x0,&(PVOID)pmBase,0x44,4);
+		pmBase &= 0xfffffe00;
+
+		PCIReadBusData(0,31,0,&pIlbBasePA,0x50,4);
+
+		pIlbBasePA &= 0xfffffe00;
+
+		pIlbBaseVA = (DWORD)NKCreateStaticMapping(pIlbBasePA >> 8, 156);
+
+		OALMSG(OAL_LOG_LEGUSB_SMI,(TEXT("+ disLegacyUsbSupport for BAYTRAIL (usbmmio base: 0x%X, apic base: 0x%X, PM base: 0x%X) \r\n"), mmioBase, acpiBase, pmBase));
+
+		//disable USB SMI from SMI Control and Enable Register (SMI_EN)
+		data = INPORT32((PULONG)(acpiBase + 0x30));
+
+		// reset USB SMI (bit 18) and USB 2 SMI Enable (bit 17) as well as Global SMI_EN (bit 0)
+		data &= 0xfff9fffe;
+		OUTPORT32((PULONG)(acpiBase+0x30), data);
+
+		//USB  Per Port Registers Write Control (UPRWC)
+		data=0x0;
+		OUTPORT32((PULONG)(acpiBase+0x3c), data);
+
+		 millisecondDelay(1);
+
+	 if(f_ehciPresent == TRUE)
+	 {
+		//USB2 Legacy Support Control/Status (ULSCS) - offset 6ch (see pg 2175 of datasheet)
+		DWORD mbar; DWORD mbarVA;
+		data = 0x00;
+		PCIWriteBusData(0x0, 0x1d, 0x0, &(PVOID)data, 0x6C, 1);
+		data = 0x00;
+		PCIWriteBusData(0x0, 0x1d, 0x0, &(PVOID)data, 0x6D, 1);
+		data = 0x00;
+		PCIWriteBusData(0x0, 0x1d, 0x0, &(PVOID)data, 0x6E, 1);
+		data = 0x00;
+		PCIWriteBusData(0x0, 0x1d, 0x0, &(PVOID)data, 0x6F, 1);
+
+		//Intel-specific USB2 SMI (ISU2SMI) - offset 70h
+		data = 0x00;
+		PCIWriteBusData(0x0, 0x1d, 0x0, &(PVOID)data, 0x70, 1);
+		data = 0x00;
+		PCIWriteBusData(0x0, 0x1d, 0x0, &(PVOID)data, 0x71, 1);
+		data = 0xff;
+		PCIWriteBusData(0x0, 0x1d, 0x0, &(PVOID)data, 0x72, 1);
+		data = 0xff;
+		PCIWriteBusData(0x0, 0x1d, 0x0, &(PVOID)data, 0x73, 1);
+
+		//  Clear the run/stop bit (bit 0) and cf flag (bit 6) in each USB CMD register.
+		//read the mbar
+		PCIReadBusData(0x0, 0x1d, 0x0, &(PVOID)mbar, 0x10, 4);
+		mbar &= 0xfffffc00;
+		mbarVA = (DWORD)NKCreateStaticMapping(mbar >> 8, 256);
+		DEBUGMSG(1,(TEXT("MBAR_PHY = 0x%x \t MBAR_VA = 0x%X\r\n"),mbar, mbarVA));
+		data = GET_DWORD_FROM_OFFSET(mbarVA, 0x20);
+		DEBUGMSG(1,(TEXT("USB2CMD = 0x%X\r\n"),data));
+		data &= 0xfffffffe;
+		SET_DWORD_FROM_OFFSET(mbarVA, 0x20, data);
+        NKDeleteStaticMapping((LPVOID)mbarVA, 256);
+	 }
+		// clear KMC register
+		data = 0x0;
+		SET_DWORD_FROM_OFFSET(pIlbBaseVA, 0x14, data);
+		data = GET_DWORD_FROM_OFFSET(pIlbBaseVA, 0x14);
+
+		NKDeleteStaticMapping((LPVOID)pIlbBaseVA, 156);
+	}else 
     {
         // do nothing
     }

@@ -640,9 +640,10 @@ ApplyDCB (PHW_INDEP_INFO pSerialHead, DCB *pDCB, BOOL fOpen)
     }
 
     if ( pSerialHead->DCB.fRtsControl == RTS_CONTROL_DISABLE ) {
+        pHWObj->pFuncTbl->HWSetAutoRTS(FALSE); //Disable AUto RTS signal
         pHWObj->pFuncTbl->HWClearRTS(pSerialHead->pHWHead);
     } else if ( pSerialHead->DCB.fRtsControl == RTS_CONTROL_ENABLE ) {
-        pHWObj->pFuncTbl->HWSetRTS(pSerialHead->pHWHead);
+        pHWObj->pFuncTbl->HWSetAutoRTS(TRUE); //Enable AutoRTS in this case
     }
 
     if ( pSerialHead->DCB.fDtrControl == DTR_CONTROL_HANDSHAKE ) {
@@ -659,6 +660,7 @@ ApplyDCB (PHW_INDEP_INFO pSerialHead, DCB *pDCB, BOOL fOpen)
         }
     }
     if ( pSerialHead->DCB.fRtsControl == RTS_CONTROL_HANDSHAKE ) {
+        pHWObj->pFuncTbl->HWSetAutoRTS(FALSE); //Disable AUto RTS signal
         if ( (!pSerialHead->RtsFlow) && IsIncreasedToFlowOff(pSerialHead)){
             DEBUGMSG (ZONE_READ|ZONE_FLOW,
                       (TEXT("IOCTL:RTS_CONTROL_HANDSHAKE Clearing RTS\r\n")));
@@ -670,6 +672,10 @@ ApplyDCB (PHW_INDEP_INFO pSerialHead, DCB *pDCB, BOOL fOpen)
             pSerialHead->RtsFlow = 0;
             pHWObj->pFuncTbl->HWSetRTS(pSerialHead->pHWHead);
         }
+    }
+
+    if ( pSerialHead->DCB.fRtsControl == RTS_CONTROL_TOGGLE ) {
+        pHWObj->pFuncTbl->HWSetAutoRTS(FALSE); //Disable AUto RTS signal in this case
     }
 
     if ( pSerialHead->DCB.fOutX || pSerialHead->DCB.fInX ) {
@@ -1024,14 +1030,15 @@ COM_Open(
 
         pSerialHead->DCB.fOutxCtsFlow = FALSE;
         pSerialHead->DCB.fOutxDsrFlow = FALSE;
-        pSerialHead->DCB.fDtrControl = DTR_CONTROL_ENABLE;
+        pSerialHead->DCB.fDtrControl = DTR_CONTROL_DISABLE; //no DTR pin on BYT
         pSerialHead->DCB.fDsrSensitivity = FALSE;
         pSerialHead->DCB.fTXContinueOnXoff = FALSE;
         pSerialHead->DCB.fOutX      = FALSE;
         pSerialHead->DCB.fInX       = FALSE;
         pSerialHead->DCB.fErrorChar = FALSE; //NOTE: ignored
         pSerialHead->DCB.fNull      = FALSE; //NOTE: ignored
-        pSerialHead->DCB.fRtsControl = RTS_CONTROL_ENABLE;
+        //pSerialHead->DCB.fRtsControl = RTS_CONTROL_ENABLE;
+        pSerialHead->DCB.fRtsControl = RTS_CONTROL_DISABLE;
         pSerialHead->DCB.fAbortOnError = FALSE; //NOTE: ignored
 
         pSerialHead->DCB.XonLim     = (WORD)((pSerialHead->RxBufferInfo.Length) >> 1) ; // Line up with XP code.

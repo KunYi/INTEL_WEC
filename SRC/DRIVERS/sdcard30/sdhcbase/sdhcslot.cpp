@@ -64,6 +64,9 @@
 #define DX_D1_OR_D2(cps)            ((cps) == D1 || (cps) == D2)
 #define SETFNAME()  LPCTSTR pszFname = _T(__FUNCTION__) _T(":"); DBG_UNREFERENCED_LOCAL_VARIABLE(pszFname)
 
+//Timeouts
+#define BUS_REQUEST_TIMEOUT         500         //500ms for bus request timeout
+
 
 #ifdef DEBUG
 // dump the current request info to the debugger
@@ -114,9 +117,10 @@ CSDHCSlotBase::CSDHCSlotBase(
     m_wIntSignals = 0;
     m_cpsCurrent = D0;
     m_cpsAtPowerDown = D0;
-    
+
     m_dwDefaultWakeupControl = 0;
     m_bWakeupControl = 0;
+    m_dwPowerSupplyRampUpMs = -1;
 
 #ifdef DEBUG
     m_dwReadyInts = 0;
@@ -128,10 +132,12 @@ CSDHCSlotBase::CSDHCSlotBase(
     m_fIsPowerManaged = FALSE;
     m_fSDIOInterruptsEnabled = FALSE;
     m_fCardPresent = FALSE;
+    m_fSuspended = FALSE;
     m_fAutoCMD12Success = FALSE;
     m_fCheckSlot = TRUE;
     m_fCanWakeOnSDIOInterrupts = FALSE;
     m_f4BitMode = FALSE;
+
     m_fFakeCardRemoval = FALSE;
 
     m_pCurrentRequest = NULL;
@@ -143,7 +149,19 @@ CSDHCSlotBase::CSDHCSlotBase(
     m_dwPollingModeSize = NUM_BYTE_FOR_POLLING_MODE ;
 
     m_Idle1BitIRQ = FALSE;
-    m_fUhsIsEnabled = FALSE;
+
+    m_pVersion = new SSDHC_VERSION();
+    m_pVersion->uw = -1;
+
+    m_pCaps = new SSDHC_CAPABILITIES();
+    m_pCaps->dw = -1;
+
+    m_ControllerInterrupts = -1;
+    m_IsWriteProtected    = -1;
+
+    m_hRequestCompletedEvent = CreateEvent(NULL,FALSE,TRUE,NULL);
+
+    m_pSDHCPowerCtrlBase = NULL;
 
 }
 
@@ -152,7 +170,30 @@ CSDHCSlotBase::~CSDHCSlotBase(
                               )
 {
     if (m_SlotDma)
+    {
         delete m_SlotDma;
+        m_SlotDma = NULL;
+    }
+    if (m_pVersion)
+    {
+        delete m_pVersion;
+        m_pVersion = NULL;
+    }
+    if (m_pCaps)
+    {
+        delete m_pCaps;
+        m_pCaps = NULL;
+    }
+    if (m_hRequestCompletedEvent)
+    {
+        CloseHandle(m_hRequestCompletedEvent);
+        m_hRequestCompletedEvent = NULL;
+    }
+    if (m_pSDHCPowerCtrlBase)
+    {
+        delete m_pSDHCPowerCtrlBase;
+        m_pSDHCPowerCtrlBase = NULL;
+    }
 }
 
 
@@ -192,7 +233,7 @@ CSDHCSlotBase::Init(
 
     fRet = SoftwareReset(SOFT_RESET_ALL);
     if (fRet) { 
-        Sleep(200); // Allow time for card to power down after a device reset
+        Sleep(200); // Allow time for card to power down after a device reset (was 10)
 
         SSDHC_CAPABILITIES caps = GetCapabilities();
         DEBUGMSG(SDCARD_ZONE_INIT && caps.bits.SDMA,
@@ -205,12 +246,13 @@ CSDHCSlotBase::Init(
         m_dwTimeoutControl = DetermineTimeoutControl();
         m_dwDefaultWakeupControl = DetermineWakeupSources();
         m_fCanWakeOnSDIOInterrupts = (m_pregDevice->ValueDW(SDHC_CAN_WAKE_ON_INT_KEY) != 0);
+        m_dwPollingModeSize = m_pregDevice->ValueDW(SDHC_POLLINGMODE_SIZE, NUM_BYTE_FOR_POLLING_MODE);
         m_dwFastPathTimeoutTicks = m_pregDevice->ValueDW(SDHC_POLLINGMODE_TIMEOUT,POLLING_MODE_TIMEOUT_DEFAULT);
         if ( m_dwFastPathTimeoutTicks > 1000 ) {
             m_dwFastPathTimeoutTicks = 1000;
         }
         m_fDisableDMA = (m_pregDevice->ValueDW(SDHC_DISABLE_DMA_KEY,0)!=0);
-        m_Idle1BitIRQ = FALSE;
+        m_Idle1BitIRQ = FALSE; // m_pregDevice->ValueDW(SDHC_IDLE1BITIRQ);
 
         Validate();
         
@@ -272,8 +314,8 @@ CSDHCSlotBase::Stop(
 
 
 SD_API_STATUS 
-CSDHCSlotBase::GetSlotInfo(
-                           PSDCARD_HC_SLOT_INFO  pSlotInfo
+CSDHCSlotBase::InitSlotInfo(
+                           PSDCARD_HC_SLOT_INFO pSlotInfo
                            )
 {
     PREFAST_DEBUGCHK(pSlotInfo);
@@ -318,7 +360,7 @@ CSDHCSlotBase::SlotOptionHandler(
 {
     SD_API_STATUS status = SD_API_STATUS_SUCCESS;
     UNREFERENCED_PARAMETER(cbData);
-    if( pData == NULL ) {
+    if( !(sdOption ==  SDHCDEnableSDIOInterrupts || sdOption==SDHCDAckSDIOInterrupt || sdOption == SDHCDDisableSDIOInterrupts) && pData == NULL ) {
         return SD_API_STATUS_INVALID_PARAMETER;
     }  
     switch (sdOption) {
@@ -362,8 +404,14 @@ CSDHCSlotBase::SlotOptionHandler(
     }
 
     case SDHCDEnableSDIOInterrupts:
-    case SDHCDAckSDIOInterrupt:
         EnableSDIOInterrupts(TRUE);
+        break;
+
+    case SDHCDAckSDIOInterrupt:
+        if (m_fCardPresent)
+        {
+            EnableSDIOInterrupts(TRUE);
+        }
         break;
 
     case SDHCDDisableSDIOInterrupts:
@@ -433,7 +481,7 @@ CSDHCSlotBase::SlotOptionHandler(
     case SDHCDGetSlotInfo: {
         DEBUGCHK(cbData == sizeof(SDCARD_HC_SLOT_INFO));
         PSDCARD_HC_SLOT_INFO pSlotInfo = (PSDCARD_HC_SLOT_INFO) pData;
-        status = GetSlotInfo(pSlotInfo);
+        status = InitSlotInfo(pSlotInfo);
         break;
     }
 
@@ -454,6 +502,14 @@ CSDHCSlotBase::SlotOptionHandler(
         status = (fResult? SD_API_STATUS_SUCCESS: SD_API_STATUS_INVALID_PARAMETER);
       break;
     }
+#if (CE_MAJOR_VER < 8)
+    case SDHCDPowerControlHandler: {
+        DEBUGCHK (cbData == sizeof(SDCARD_DEVICE_TYPE));
+        PSDCARD_DEVICE_TYPE pDeviceType = (PSDCARD_DEVICE_TYPE)pData;
+        status = CreatePowerCtrl((SDCARD_DEVICE_TYPE) *pDeviceType, NULL);
+        break;
+    }
+#endif
     default:
         status = SD_API_STATUS_NOT_IMPLEMENTED;
     }
@@ -467,22 +523,22 @@ CSDHCSlotBase::DetermineMaxClockRate(
 {
     DEBUGCHK(m_pregDevice->IsOK());
     
-    DWORD dwMaxClockRate;
-
-
-    SSDHC_CAPABILITIES caps = GetCapabilities();
-        
-    dwMaxClockRate = caps.bits.ClkFreq * 1000000;
+    // We allow the registry to override what is in the capabilities register.
+    DWORD dwMaxClockRate = m_pregDevice->ValueDW(SDHC_FREQUENCY_KEY);
     if (dwMaxClockRate == 0) {
-        // No clock frequency specified. Use the highest possible that
-        // could have been specified so that a working clock divisor 
-        // will be chosen.
-        dwMaxClockRate = SDHC_MAX_CLOCK_FREQUENCY;
-        DEBUGMSG(SDCARD_ZONE_ERROR, (TEXT("SDHC: No base clock frequency specified\n")));
-        DEBUGMSG(SDCARD_ZONE_ERROR, (TEXT("SDHC: Using default frequency of %u\n"), 
+        SSDHC_CAPABILITIES caps = GetCapabilities();
+        
+        dwMaxClockRate = caps.bits.ClkFreq * 1000000;
+        if (dwMaxClockRate == 0) {
+            // No clock frequency specified. Use the highest possible that
+            // could have been specified so that a working clock divisor 
+            // will be chosen.
+            dwMaxClockRate = SDHC_MAX_CLOCK_FREQUENCY;
+            DEBUGMSG(SDCARD_ZONE_ERROR, (TEXT("SDHC: No base clock frequency specified\n")));
+            DEBUGMSG(SDCARD_ZONE_ERROR, (TEXT("SDHC: Using default frequency of %u\n"), 
                 dwMaxClockRate));
-     }
-
+        }
+    }
 
     return dwMaxClockRate;
 }
@@ -722,65 +778,46 @@ CSDHCSlotBase::SetPowerState(
 }
 
 
+//Modifying the behaviors for PowerDown and PowerUp;
+//These require a control pattern defined by the context.
 VOID
-CSDHCSlotBase::PowerDown(
-                         )
+CSDHCSlotBase::PowerDown()
 {
+    BOOL fKeepPower = TRUE;
+
     Validate();
 
+    if (!m_pSDHCPowerCtrlBase)
+    {
+        return;
+    }
+
     m_cpsAtPowerDown = m_cpsCurrent;
-
-    if (!m_fIsPowerManaged) {
-        CEDEVICE_POWER_STATE cps;
-
-        if (m_bWakeupControl) {
-            cps = D3;
-        }
-        else {
-            cps = D4;
-        }
-
-        SetHardwarePowerState(cps);
-    }
-
-    BOOL fKeepPower = FALSE;
-    if (m_fSleepsWithPower || m_cpsCurrent == D0) {
-        DEBUGCHK(!m_fSleepsWithPower || m_cpsCurrent == D3);
-        fKeepPower = TRUE;
-    }
-    else
-        m_fFakeCardRemoval = TRUE;
-
-
+    m_pSDHCPowerCtrlBase->PowerDown();
+    m_fFakeCardRemoval = m_pSDHCPowerCtrlBase->IsFakeCardRemoval();
+    fKeepPower = m_pSDHCPowerCtrlBase->KeepPower();
     PowerUpDown(FALSE, fKeepPower);
 }
 
-
 VOID 
-CSDHCSlotBase::PowerUp(
-                       )
+CSDHCSlotBase::PowerUp()
 {
+
     Validate();
 
-    if (!m_fIsPowerManaged) {
-        SetHardwarePowerState(m_cpsAtPowerDown);
-    }
-    else if (m_fSleepsWithPower) {
-        WORD wIntStatus = ReadWord(SDHC_NORMAL_INT_STATUS);
-        if (wIntStatus == NORMAL_INT_STATUS_CARD_INT) {
-            // We woke system through a card interrupt. We need to clear
-            // this so that the IST will not be signalled.
-            EnableSDIOInterrupts(FALSE);
-            m_fPowerUpDisabledInts = TRUE;
-        }
+    if (!m_pSDHCPowerCtrlBase)
+    {
+        return;
     }
 
+    m_pSDHCPowerCtrlBase->PowerUp();
+    m_fFakeCardRemoval = m_pSDHCPowerCtrlBase->IsFakeCardRemoval();
     PowerUpDown(TRUE, TRUE);
     if (m_fFakeCardRemoval)
         SetInterruptEvent();
 }
 //
-// For BC, 
+// For BC, b
 // 1. Returns SD_API_STATUS_FAST_PATH_SUCCESS, callback is NOT called. Fastpass only.
 // 2. Return !SD_API_SUCCESS(status). callback is NOT called.
 // 3. Return SD_API_STATUS_SUCCESS, callback is called
@@ -791,65 +828,113 @@ CSDHCSlotBase::BusRequestHandler( PSD_BUS_REQUEST pRequest)
 {
     SETFNAME();
     SD_API_STATUS status;
+    BOOL bCanceled = FALSE;
     PREFAST_DEBUGCHK(pRequest);
     Validate();
     if( pRequest == NULL ) {
         return SD_API_STATUS_INVALID_PARAMETER;
     }  
     DEBUGMSG(SDHC_SEND_ZONE, (TEXT("%s CMD:%d\n"), pszFname, pRequest->CommandCode));
-    if (m_pCurrentRequest) { // We have outstand request.
+    if (m_pCurrentRequest) 
+    { 
+        //We have outstanding request.
         ASSERT(FALSE);
-        IndicateBusRequestComplete(pRequest, SD_API_STATUS_CANCELED);
+        //Cancel the m_pCurrentRequest
+        IdleBusAdjustment(ADJUST_BUS_IDLE);
+        IndicateBusRequestComplete(m_pCurrentRequest, SD_API_STATUS_CANCELED);
         m_pCurrentRequest = NULL;
+        //******************************************************************
+        //** Note 1:
+        //** .
+        //** Since we are replacing the request, 
+        //** we need to also update the HC owned to the new request,
+        //** otherwise if this request goes through 
+        //** it will block when trying to complete it.
+        //** This could go in the position indicated in Note 2 below.
+        //******************************************************************
+        UpdateCurrentHCOwned(pRequest); 
     }
-    if (!m_fCardPresent) {
+    if (!m_fCardPresent || m_fSuspended)
+    {
         status= SD_API_STATUS_DEVICE_REMOVED;
+        //We need to complete the request 
+        //if we cancel it other wise it will wait forever.
+        m_fCurrentRequestFastPath = TRUE;
+        IdleBusAdjustment(ADJUST_BUS_IDLE);
+        IndicateBusRequestComplete(pRequest,status);
     }
-    else {
+    else 
+    {
         WORD wIntSignals = ReadWord(SDHC_NORMAL_INT_SIGNAL_ENABLE);
         WriteWord(SDHC_NORMAL_INT_SIGNAL_ENABLE,0);
         m_fCurrentRequestFastPath = FALSE ;
-        m_pCurrentRequest = pRequest ;
-        // if no data transfer involved, use FAST PATH
-        if ((pRequest->SystemFlags & SD_FAST_PATH_AVAILABLE)!=0) { // Fastpath 
+        m_pCurrentRequest = pRequest;
+        //******************************************************************
+        //** Note 2:
+        //** UpdateCurrentHCOwned(pRequest); could go here instead of above,
+        //** but wanted to keep the code changes in the same place.
+        //******************************************************************
+
+        //if no data transfer involved, use FAST PATH
+        if ((pRequest->SystemFlags & SD_FAST_PATH_AVAILABLE)!=0 && m_fSuspended == FALSE)
+        {
+            // Fastpath
             m_fCurrentRequestFastPath = TRUE;
+            ResetEvent(m_hRequestCompletedEvent);
             status = SubmitBusRequestHandler( pRequest );
             
-            if( status == SD_API_STATUS_PENDING ) { // Polling for completion.
+            if( status == SD_API_STATUS_PENDING ) 
+            { 
+                // Polling for completion.
                 BOOL fCardInserted = TRUE;
                 DWORD dwStartTicks = GetTickCount();
                 fCardInserted = ReadDword(SDHC_PRESENT_STATE) & STATE_CARD_INSERTED;
-                while (m_pCurrentRequest && fCardInserted!=0 && 
-                    GetTickCount() - dwStartTicks <= m_dwFastPathTimeoutTicks) {
+
+                while
+                (
+                    m_pCurrentRequest && 
+                    fCardInserted != 0 && 
+                    m_fSuspended == FALSE &&
+                    GetTickCount() - dwStartTicks <= m_dwFastPathTimeoutTicks
+                )
+                {
                     HandleInterrupt();
                     fCardInserted = ReadDword(SDHC_PRESENT_STATE) & STATE_CARD_INSERTED;
                 } 
-                if (m_pCurrentRequest && fCardInserted ) { 
+                if (m_pCurrentRequest && fCardInserted && m_fSuspended == FALSE) 
+                {
                     // Time out , need to switch to asyn.it will call callback after this
                     pRequest->SystemFlags &= ~SD_FAST_PATH_AVAILABLE;
                     m_fCurrentRequestFastPath = FALSE ;
                 }
-                else { // Fastpass completed.
+                else 
+                {
+                    // Fastpass completed.
                     status = m_FastPathStatus;
-                    if (m_pCurrentRequest) {
+                    if (m_pCurrentRequest) 
+                    {
                         ASSERT(FALSE);
                         status = SD_API_STATUS_DEVICE_REMOVED;
                     }
                 }
             }
-            if (status == SD_API_STATUS_SUCCESS) {
+            if (status == SD_API_STATUS_SUCCESS) 
+            {
                 status = SD_API_STATUS_FAST_PATH_SUCCESS;
             }
         }
-        else  
+        else
+        {
+            ResetEvent(m_hRequestCompletedEvent);
             status = SubmitBusRequestHandler( pRequest );
-        
-        if (status!=SD_API_STATUS_PENDING && m_pCurrentRequest) { 
-            // if there is error case. We don't notify the callback function either So.
+        }
+
+        if (status != SD_API_STATUS_PENDING && m_pCurrentRequest) 
+        {
             m_fCurrentRequestFastPath = TRUE;
+            IdleBusAdjustment(ADJUST_BUS_IDLE);
             IndicateBusRequestComplete(pRequest,status);
         }
-        
         // There should be a better way to handle CMD11 associated hardware moves
         // but currently to make changes small this hw setup is added to the
         // function that is called from the Bus Layer. To make it right way SDLIB
@@ -862,6 +947,7 @@ CSDHCSlotBase::BusRequestHandler( PSD_BUS_REQUEST pRequest)
         }
         WriteWord(SDHC_NORMAL_INT_SIGNAL_ENABLE,wIntSignals);
     }
+    SetEvent(m_hRequestCompletedEvent);
     return status;
 }
 
@@ -927,10 +1013,14 @@ CSDHCSlotBase::SubmitBusRequestHandler(
     PREFAST_DEBUGCHK(pRequest);
     Validate();
 
-    WORD            wRegCommand;
-    SD_API_STATUS   status;
-    WORD            wIntStatusEn;
-    BOOL            fSuccess;
+    WORD                wRegCommand         = 0;
+    SD_API_STATUS       status              = SD_API_STATUS_SUCCESS;
+    WORD                wIntStatusEn        = 0;
+    BOOL                fSuccess            = TRUE;
+    BOOL                fRetry              = TRUE;
+    BOOL                fUpdateInts         = FALSE;
+    BYTE                bRetryCount         = 0;
+    BYTE                bMaxRetries         = 2;
     
     DEBUGCHK(m_dwReadyInts == 0);
     DEBUGCHK(!m_fCommandCompleteOccurred);
@@ -946,7 +1036,9 @@ CSDHCSlotBase::SubmitBusRequestHandler(
             UNALIGNED DWORD *pdwResponseBuffer = 
                 (PDWORD) (pRequest->CommandResponse.ResponseBuffer + 1); // Skip CRC
             *pdwResponseBuffer = ReadDword(SDHC_R6);
+            IdleBusAdjustment(ADJUST_BUS_IDLE);
             IndicateBusRequestComplete(pRequest, SD_API_STATUS_SUCCESS);
+            m_pCurrentRequest = NULL;
             status = SD_API_STATUS_SUCCESS;
             goto EXIT;
         }
@@ -993,16 +1085,55 @@ CSDHCSlotBase::SubmitBusRequestHandler(
     // Set up variable for the new interrupt sources. Note that we must
     // enable DMA and read/write interrupts in this routine (not in
     // HandleCommandComplete) or they will be missed.
+
     wIntStatusEn = ReadWord(SDHC_NORMAL_INT_STATUS_ENABLE);
+
+    if ((wIntStatusEn & NORMAL_INT_ENABLE_CARD_INT)==0)
+    {
+        wIntStatusEn |= NORMAL_INT_ENABLE_CARD_INT;
+        fUpdateInts = TRUE;
+    }
+
+    if ((wIntStatusEn & NORMAL_INT_ENABLE_DMA)==0)
+    {
+        wIntStatusEn |= NORMAL_INT_ENABLE_DMA;
+        fUpdateInts = TRUE;
+    }
+
+    if (fUpdateInts == TRUE)
+    {
+        if (wIntStatusEn & NORMAL_INT_ENABLE_CARD_INT)
+        {
+            m_fSDIOInterruptsEnabled = TRUE;
+        }
+
+        WriteWord(SDHC_NORMAL_INT_STATUS_ENABLE, wIntStatusEn);
+    }
+    
     wIntStatusEn |= NORMAL_INT_ENABLE_CMD_COMPLETE | NORMAL_INT_ENABLE_TRX_COMPLETE;
 
-    // check command inhibit, wait until OK
-    fSuccess = WaitForReg<DWORD>(&CSDHCSlotBase::ReadDword, SDHC_PRESENT_STATE, STATE_CMD_INHIBIT, 0);
-    if (!fSuccess) {
-        DEBUGMSG(SDCARD_ZONE_ERROR, (_T("%s Timeout waiting for CMD Inhibit\r\n"),
-            pszFname));
-        status = SD_API_STATUS_DEVICE_NOT_RESPONDING;
-        goto EXIT;
+    while(fRetry == TRUE)
+    {
+        // check command inhibit, wait until OK
+        fSuccess = WaitForReg<DWORD>(&CSDHCSlotBase::ReadDword, SDHC_PRESENT_STATE, STATE_CMD_INHIBIT, 0);
+        if (!fSuccess) 
+        {
+            if(bRetryCount < bMaxRetries)
+            {
+                bRetryCount++;
+            }
+            else
+            {
+                DEBUGMSG(SDCARD_ZONE_ERROR, (_T("%s Timeout waiting for CMD Inhibit\r\n"),
+				            pszFname));
+				status = SD_API_STATUS_DEVICE_NOT_RESPONDING;
+                goto EXIT;
+            }
+        }
+        else
+        {
+            break;
+        }
     }
 
     // programming registers
@@ -1029,15 +1160,28 @@ CSDHCSlotBase::SubmitBusRequestHandler(
         ASSERT(PAGE_SIZE == 0x1000);
         WriteWord(SDHC_BLOCKSIZE, (WORD)(pRequest->BlockSize & 0xfff) | (0<<12)); // SDHC 2.2.2, CE is 4k-aligned page.
 
-        // We always go into block mode even if there is only 1 block. 
-        // Otherwise the Pegasus will occaissionally hang when
-        // writing a single block with DMA.
-        wRegTxnMode |= (TXN_MODE_MULTI_BLOCK | TXN_MODE_BLOCK_COUNT_ENABLE);
+#if 0 // OLD WAY
 
         // BlockCount
-        DEBUGMSG(SDHC_SEND_ZONE,(TEXT("Sending command block count 0x%04X\r\n"), 
-            (WORD) pRequest->NumBlocks));            
+        // We always go into block mode even if there is only 1 block. 
+        // Otherwise the Pegasus will occaissionally stop responding when
+        // writing a single block with DMA.
+        wRegTxnMode |= (TXN_MODE_MULTI_BLOCK | TXN_MODE_BLOCK_COUNT_ENABLE);
+        DEBUGMSG(SDHC_SEND_ZONE,(TEXT("Sending command block count 0x%04X\r\n"), (WORD) pRequest->NumBlocks));
         WriteWord(SDHC_BLOCKCOUNT, (WORD) pRequest->NumBlocks);
+
+#else // NEW WAY
+
+        // BlockCount
+        if (pRequest->NumBlocks > 1) { // only do multi-block transfer when num blocks > 1
+            wRegTxnMode |= (TXN_MODE_MULTI_BLOCK | TXN_MODE_BLOCK_COUNT_ENABLE);
+            DEBUGMSG(SDHC_SEND_ZONE,(TEXT("Sending command block count 0x%04X\r\n"), (WORD) pRequest->NumBlocks));
+            WriteWord(SDHC_BLOCKCOUNT, (WORD) pRequest->NumBlocks);
+        } else {
+            WriteWord(SDHC_BLOCKCOUNT, (WORD) 0);
+        }
+
+#endif // OLD / NEW WAY
 
         if (pRequest->Flags & SD_AUTO_ISSUE_CMD12) {
             wRegTxnMode |= TXN_MODE_AUTO_CMD12;
@@ -1049,10 +1193,11 @@ CSDHCSlotBase::SubmitBusRequestHandler(
 
         // check dat inhibit, wait until okay
         fSuccess = WaitForReg<DWORD>(&CSDHCSlotBase::ReadDword, SDHC_PRESENT_STATE, STATE_DAT_INHIBIT, 0); 
-        if (!fSuccess) {
-            DEBUGMSG(SDCARD_ZONE_ERROR, (_T("%s Timeout waiting for DAT Inhibit\r\n"),
-                pszFname));
-            status = SD_API_STATUS_DEVICE_NOT_RESPONDING;
+        if (!fSuccess) 
+        {
+             DEBUGMSG(SDCARD_ZONE_ERROR, (_T("%s Timeout waiting for DAT Inhibit\r\n"),
+			                 pszFname));            
+			status = SD_API_STATUS_DEVICE_NOT_RESPONDING;
             goto EXIT;
         }
         
@@ -1064,7 +1209,8 @@ CSDHCSlotBase::SubmitBusRequestHandler(
         if (pRequest->CommandCode == SD_CMD_STOP_TRANSMISSION) {
             wRegCommand |= CMD_TYPE_ABORT;
         }
-        else if (TransferIsSDIOAbort(pRequest)) {
+        else if (TransferIsSDIOAbort(pRequest)) 
+        {
             // Use R5b For CMD52, Function 0, I/O Abort
             DEBUGMSG(SDHC_SEND_ZONE, (TEXT("Sending Abort command \r\n")));
             wRegCommand |= CMD_TYPE_ABORT | CMD_RESPONSE_R1B_R5B;
@@ -1100,15 +1246,17 @@ CSDHCSlotBase::SubmitBusRequestHandler(
     WriteWord(SDHC_COMMAND, wRegCommand);
 
     fSuccess = WaitForReg<DWORD>(&CSDHCSlotBase::ReadDword, SDHC_PRESENT_STATE, STATE_CMD_INHIBIT, 0);
-    if (!fSuccess) {
-        DEBUGMSG(SDCARD_ZONE_ERROR, (_T("%s Timeout waiting for CMD Inhibit\r\n"),
-            pszFname));
-        status = SD_API_STATUS_DEVICE_NOT_RESPONDING;
+    if (!fSuccess) 
+    {
+         DEBUGMSG(SDCARD_ZONE_ERROR, (_T("%s Timeout waiting for CMD Inhibit\r\n"),
+		             pszFname));       
+		 status = SD_API_STATUS_DEVICE_NOT_RESPONDING;
         goto EXIT;
     }
 
     
-    if (m_fCommandPolling  ) {
+    if (m_fCommandPolling  ) 
+    {
         PollingForCommandComplete();
     }
     status = SD_API_STATUS_PENDING;
@@ -1134,7 +1282,8 @@ BOOL CSDHCSlotBase::PollingForCommandComplete()
                     m_dwSlot, wIntStatus));
 
                 // Error handling. Make sure to handle errors first. 
-                if ( wIntStatus & NORMAL_INT_STATUS_ERROR_INT ) {
+                if ( wIntStatus & NORMAL_INT_STATUS_ERROR_INT ) 
+                {
                     HandleErrors();
                     fContinue = FALSE;
                 }
@@ -1182,7 +1331,6 @@ CSDHCSlotBase::HandleInterrupt(
     Validate();
 
     WORD wIntStatus = ReadWord(SDHC_NORMAL_INT_STATUS);
-
     if (m_fFakeCardRemoval ) {
         m_fFakeCardRemoval = FALSE;
         if (m_fCardPresent)
@@ -1265,8 +1413,9 @@ CSDHCSlotBase::HandleInterrupt(
         if ( wIntStatus & NORMAL_INT_STATUS_CARD_INT ) {
             DEBUGCHK(m_fSDIOInterruptsEnabled);
             DEBUGMSG(SDHC_INTERRUPT_ZONE, (_T("SDHCControllerIst: Card interrupt!\n")));
-
+			
             EnableSDIOInterrupts(FALSE);
+
             WriteWord(SDHC_NORMAL_INT_STATUS,NORMAL_INT_STATUS_CARD_INT);
             IndicateSlotStateChange(DeviceInterrupting);
         }
@@ -1277,6 +1426,7 @@ CSDHCSlotBase::HandleInterrupt(
                 SDHC_NORMAL_INT_STATUS,
                 NORMAL_INT_STATUS_CARD_INSERTION | NORMAL_INT_STATUS_CARD_REMOVAL);
             m_fCheckSlot = TRUE;
+            Sleep(100);
         }
     }
 
@@ -1305,7 +1455,7 @@ VOID
 CSDHCSlotBase::HandleRemoval(
                              BOOL fCancelRequest
                              )
-{    
+{
     m_fCardPresent = FALSE;
     m_fIsPowerManaged = FALSE;
     m_fSleepsWithPower = FALSE;
@@ -1322,40 +1472,14 @@ CSDHCSlotBase::HandleRemoval(
         EnableSDIOInterrupts(FALSE);
     }
 
-    IndicateSlotStateChange(DeviceEjected);
+    HandleSlotReset(fCancelRequest);
 
     // turn off clock and remove power from the slot
     SDClockOff();
     WriteByte(SDHC_POWER_CONTROL, 0);
 
-    if (fCancelRequest) {
-        // get the current request  
-        PSD_BUS_REQUEST pRequest = GetAndLockCurrentRequest();
-
-        if (pRequest != NULL) {
-            DEBUGMSG(SDCARD_ZONE_WARN, 
-                (TEXT("Card Removal Detected - Canceling current request: 0x%08X, command: %d\n"), 
-                pRequest, pRequest->CommandCode));
-            DumpRequest(pRequest, SDHC_SEND_ZONE || SDHC_RECEIVE_ZONE);
-            IndicateBusRequestComplete(pRequest, SD_API_STATUS_DEVICE_REMOVED);
-        }
-    }
-
-    if (m_SlotDma) {
-        delete m_SlotDma;
-        m_SlotDma = NULL;
-
-        // The Pegasus requires the following so that the next
-        // insertion will work correctly.
-        SoftwareReset(SOFT_RESET_CMD | SOFT_RESET_DAT);
-        WriteWord(SDHC_TRANSFERMODE, 0);
-        WriteDword(SDHC_SYSTEMADDRESS_LO, 0);
-        WriteWord(SDHC_BLOCKSIZE, 0);
-        WriteWord(SDHC_BLOCKCOUNT, 0);
-        WriteWord(SDHC_NORMAL_INT_STATUS, NORMAL_INT_STATUS_DMA);
-        WriteDword(SDHC_ADMA_SYSTEMADDRESS_LO, 0 ); // 32-bit address.
-        WriteDword(SDHC_ADMA_SYSTEMADDRESS_HI, 0 );
-    }
+    DEBUGMSG (SDCARD_ZONE_INFO, (L"CSDHCSlotBase::HandleRemoval : IndicateSlotStateChange - DeviceEjected\n"));
+    IndicateSlotStateChange(DeviceEjected);
 }
 
 
@@ -1363,50 +1487,13 @@ VOID
 CSDHCSlotBase::HandleInsertion(
                                )
 {
-    DWORD dwClockRate = SD_DEFAULT_CARD_ID_CLOCK_RATE;
-
-    m_fCardPresent = TRUE;
-
-    // Apply the initial voltage to the card.
-    SetVoltage(GetMaxVddWindow());
-
-    // Send at least 74 clocks to the card over the course of at least 1 ms
-    // with allowance for power supply ramp-up time. (SD Phys Layer 6.4)
-    // Note that power supply ramp-up time occurs in SetVoltage().
-    SetClockRate(&dwClockRate);
-    SDClockOn();
-    DWORD dwSleepMs = 1;
-    if (dwClockRate >= 1000) {
-        dwSleepMs = (74 / (dwClockRate / 1000)) + 1;
-    }   
-    Sleep(dwSleepMs);
-    SDClockOff();
-    if (m_SlotDma) {
-        ASSERT(FALSE);
-        delete m_SlotDma;
-        m_SlotDma = NULL;
-    }
-    
-    if (!m_fDisableDMA) {
-        SSDHC_CAPABILITIES caps = GetCapabilities();
-        if (caps.bits.ADMA2) {
-            m_SlotDma = new CSDHCSlotBase32BitADMA2(*this);
-        }
-        else if (caps.bits.SDMA) {
-            m_SlotDma = new CSDHCSlotBaseSDMA(*this);
-        }
-        
-        if (m_SlotDma && !m_SlotDma->Init()) { // failed.
-            delete m_SlotDma;
-            m_SlotDma = NULL;
-        }
-        ASSERT(!(caps.bits.ADMA2 || caps.bits.SDMA) || m_SlotDma!=NULL);
-    }
+    InitCard();
 
     // Interrupts are not enabled on a newly inserted card.
     EnableSDIOInterrupts(FALSE);
 
     // Indicate device arrival
+    DEBUGMSG (SDCARD_ZONE_INFO, (L"CSDHCSlotBase::HandleInsertion : IndicateSlotStateChange - DeviceInserted\n"));
     IndicateSlotStateChange(DeviceInserted);
 }
 
@@ -1417,8 +1504,9 @@ CSDHCSlotBase::HandleCommandComplete(
 {
     SETFNAME();
     
-    PSD_BUS_REQUEST pRequest;
-    BOOL fRet = FALSE;
+    PSD_BUS_REQUEST     pRequest    = NULL;
+    BOOL                fRet        = FALSE;
+    BOOL                fIndicated  = FALSE;
 
     // get the current request  
     pRequest = GetAndLockCurrentRequest();
@@ -1443,9 +1531,11 @@ CSDHCSlotBase::HandleCommandComplete(
                 BOOL fSuccess = WaitForReg<WORD>(&CSDHCSlotBase::ReadWord, SDHC_NORMAL_INT_STATUS, 
                     NORMAL_INT_STATUS_TRX_COMPLETE, NORMAL_INT_STATUS_TRX_COMPLETE, 5000);
                 if (!fSuccess) {
-                    DEBUGMSG(SDCARD_ZONE_ERROR, (_T("%s Timeout waiting for NORMAL_INT_STATUS_TRX_COMPLETE\r\n"),
-                        pszFname));
-                    transferStatus = SD_API_STATUS_RESPONSE_TIMEOUT;
+                    DEBUGMSG(SDCARD_ZONE_ERROR, (_T("%s Timeout waiting for NORMAL_INT_STATUS_TRX_COMPLETE\r\n"),pszFname));                   
+					transferStatus = SD_API_STATUS_RESPONSE_TIMEOUT;
+                    IdleBusAdjustment(ADJUST_BUS_IDLE);
+                    IndicateBusRequestComplete(pRequest, transferStatus);
+                    fIndicated = TRUE;
                 }
 
                 // Reset cmd and dat circuits
@@ -1462,13 +1552,18 @@ CSDHCSlotBase::HandleCommandComplete(
         }
 
         // check for command/response only
-        if (TRANSFER_IS_COMMAND_ONLY(pRequest)) {
-            // indicate idle bus
-            IdleBusAdjustment(ADJUST_BUS_IDLE);
-
-            IndicateBusRequestComplete(pRequest, transferStatus);
-            fRet = TRUE;
-        } else {
+        if (TRANSFER_IS_COMMAND_ONLY(pRequest)) 
+        {
+            if(fIndicated == FALSE)
+            {
+                // indicate idle bus
+                IdleBusAdjustment(ADJUST_BUS_IDLE);
+                IndicateBusRequestComplete(pRequest, transferStatus);
+                fRet = TRUE;
+            }
+        } 
+        else
+        {
             // handle data phase transfer
             pRequest->HCParam = 0;
             fRet = FALSE;
@@ -1490,8 +1585,7 @@ CSDHCSlotBase::HandleErrors(
     PSD_BUS_REQUEST pRequest = GetAndLockCurrentRequest();
 
     WORD wErrorStatus = ReadWord(SDHC_ERROR_INT_STATUS);
-    DEBUGMSG(SDCARD_ZONE_ERROR, 
-        (TEXT("HandleErrors - ERROR INT STATUS=0x%02X\n"), wErrorStatus));
+	RETAILMSG(1, (TEXT("HandleErrors - ERROR INT STATUS=0x%02X\n"), wErrorStatus));
     if (pRequest) {
         DumpRequest(pRequest, SDCARD_ZONE_ERROR);
     }
@@ -1499,41 +1593,52 @@ CSDHCSlotBase::HandleErrors(
     DEBUGCHK( (wErrorStatus & ERR_INT_STATUS_VENDOR) == 0 );
 
     if (wErrorStatus) {
-        if ( wErrorStatus & ERR_INT_STATUS_CMD_TIMEOUT ) {
+        if ( wErrorStatus & ERR_INT_STATUS_CMD_TIMEOUT ) 
+        {
             status = SD_API_STATUS_RESPONSE_TIMEOUT;
         }
 
-        if ( wErrorStatus & ERR_INT_STATUS_CMD_CRC ) {
+        if ( wErrorStatus & ERR_INT_STATUS_CMD_CRC ) 
+        {
             status = SD_API_STATUS_CRC_ERROR;
             if ( wErrorStatus & ERR_INT_STATUS_CMD_TIMEOUT )
+            {
                 status = SD_API_STATUS_DEVICE_RESPONSE_ERROR;
+            }
         }
 
-        if ( wErrorStatus & ERR_INT_STATUS_CMD_ENDBIT ) {
+        if ( wErrorStatus & ERR_INT_STATUS_CMD_ENDBIT ) 
+        {
             status = SD_API_STATUS_RESPONSE_TIMEOUT;
         }
 
-        if ( wErrorStatus & ERR_INT_STATUS_CMD_INDEX ) {
+        if ( wErrorStatus & ERR_INT_STATUS_CMD_INDEX ) 
+        {
             status = SD_API_STATUS_DEVICE_RESPONSE_ERROR;
         }
 
-        if ( wErrorStatus & ERR_INT_STATUS_DAT_TIMEOUT ) {
+        if ( wErrorStatus & ERR_INT_STATUS_DAT_TIMEOUT ) 
+        {
             status = SD_API_STATUS_DATA_TIMEOUT;
         }
 
-        if ( wErrorStatus & ERR_INT_STATUS_DAT_CRC ) {
+        if ( wErrorStatus & ERR_INT_STATUS_DAT_CRC ) 
+        {
             status = SD_API_STATUS_CRC_ERROR;
         }
 
-        if ( wErrorStatus & ERR_INT_STATUS_DAT_ENDBIT ) {
+        if ( wErrorStatus & ERR_INT_STATUS_DAT_ENDBIT ) 
+        {
             status = SD_API_STATUS_DEVICE_RESPONSE_ERROR;
         }
 
-        if ( wErrorStatus & ERR_INT_STATUS_BUS_POWER ) {
+        if ( wErrorStatus & ERR_INT_STATUS_BUS_POWER ) 
+        {
             status = SD_API_STATUS_DEVICE_RESPONSE_ERROR;
         }
 
-        if ( wErrorStatus & ERR_INT_STATUS_AUTOCMD12 ) {
+        if ( wErrorStatus & ERR_INT_STATUS_AUTOCMD12 ) 
+        {
             status = SD_API_STATUS_DEVICE_RESPONSE_ERROR;
         }
 
@@ -1542,9 +1647,9 @@ CSDHCSlotBase::HandleErrors(
                 m_SlotDma->DMANotifyEvent(*pRequest, DMA_ERROR_OCCOR );
             }
             else {
-                DEBUGMSG(SDCARD_ZONE_ERROR, (TEXT("HandleErrors - ADMA Error without DMA Enabled (0x%x). Resetting CMD line.\r\n"),
-                    ReadByte(SDHC_ADMA_ERROR_STATUS)));
-            }
+              DEBUGMSG(SDCARD_ZONE_ERROR, (TEXT("HandleErrors - ADMA Error without DMA Enabled (0x%x). Resetting CMD line.\r\n"),
+                    ReadByte(SDHC_ADMA_ERROR_STATUS)));            
+					}
         }
         // Perform basic error recovery
         WORD wErrIntSignal = ReadWord(SDHC_ERROR_INT_SIGNAL_ENABLE);
@@ -1580,16 +1685,16 @@ CSDHCSlotBase::HandleErrors(
         {
             if (IS_CMD_LINE_ERROR(wErrorStatus)) {
                 // Reset CMD line
-                DEBUGMSG(SDCARD_ZONE_ERROR, (TEXT("HandleErrors - Command line error (0x%x). Resetting CMD line.\r\n"),
-                    wErrorStatus));
-                SoftwareReset(SOFT_RESET_CMD);
+               DEBUGMSG(SDCARD_ZONE_ERROR, (TEXT("HandleErrors - Command line error (0x%x). Resetting CMD line.\r\n"),
+			   wErrorStatus));                
+			   SoftwareReset(SOFT_RESET_CMD);
             }
 
             if (IS_DAT_LINE_ERROR(wErrorStatus)) {
                 // Reset DAT line
-                DEBUGMSG(SDCARD_ZONE_ERROR, (TEXT("HandleErrors - Data line error (0x%x). Resetting DAT line.\r\n"),
-                    wErrorStatus));
-                SoftwareReset(SOFT_RESET_DAT);
+                 DEBUGMSG(SDCARD_ZONE_ERROR, (TEXT("HandleErrors - Data line error (0x%x). Resetting DAT line.\r\n"),
+				                     wErrorStatus));                
+									 					SoftwareReset(SOFT_RESET_DAT);
             }
         }
 
@@ -1603,7 +1708,6 @@ CSDHCSlotBase::HandleErrors(
         if (pRequest) {
             // indicate idle bus
             IdleBusAdjustment(ADJUST_BUS_IDLE);
-
             IndicateBusRequestComplete(pRequest, status);
         }
     }
@@ -1640,7 +1744,6 @@ CSDHCSlotBase::HandleTransferDone(
         }
         // indicate idle bus
         IdleBusAdjustment(ADJUST_BUS_IDLE);
-
         IndicateBusRequestComplete(pRequest, status);
     }
     // else request must have been canceled due to an error
@@ -1705,6 +1808,7 @@ CSDHCSlotBase::HandleReadReady(
         }
         __except(SDProcessException(GetExceptionInformation())) {
             DEBUGMSG(SDCARD_ZONE_ERROR, (_T("Exception reading from client buffer!\r\n")));
+            IdleBusAdjustment(ADJUST_BUS_IDLE);
             IndicateBusRequestComplete(pRequest, SD_API_STATUS_ACCESS_VIOLATION);
         }
 
@@ -1769,6 +1873,7 @@ CSDHCSlotBase::HandleWriteReady(
         }
         __except(SDProcessException(GetExceptionInformation())) {
             DEBUGMSG(SDCARD_ZONE_ERROR, (_T("Exception reading from client buffer!\r\n")));
+            IdleBusAdjustment(ADJUST_BUS_IDLE);
             IndicateBusRequestComplete(pRequest, SD_API_STATUS_ACCESS_VIOLATION);
         }
 
@@ -1827,6 +1932,7 @@ CSDHCSlotBase::SetHardwarePowerState(
     BYTE bWakeupControl = m_bWakeupControl;
 
     if (cpsCurrent == D0) {
+
         SDClockOff();
         
         if (cpsNew == D3) {
@@ -1838,6 +1944,9 @@ CSDHCSlotBase::SetHardwarePowerState(
                 }
             else {
                 // Wake on status changes only
+
+
+
                 WriteByte(SDHC_POWER_CONTROL, 0);
                 bWakeupControl &= ~WAKEUP_INTERRUPT;
             }
@@ -1849,19 +1958,24 @@ CSDHCSlotBase::SetHardwarePowerState(
             WriteByte(SDHC_WAKEUP_CONTROL, bWakeupControl);
         }
         else {
+
             DEBUGCHK(cpsNew == D4);
             WriteByte(SDHC_CLOCK_CONTROL, 0);
             WriteByte(SDHC_POWER_CONTROL, 0);
         }
     }
     else if (cpsCurrent == D3) {
+
         // Coming out of wakeup state
         if (cpsNew == D0) {            
+
             WriteByte(SDHC_WAKEUP_CONTROL, 0);
 
             if (!m_fSleepsWithPower) {
+
                 // Power was turned off to the socket. Re-enumerate card.
                 if (m_fCardPresent) {
+
                     HandleRemoval(TRUE);
                 }
 
@@ -1870,6 +1984,8 @@ CSDHCSlotBase::SetHardwarePowerState(
             }
             else {
                 if (m_fCardPresent) {
+
+
                     // Do not do this if the card was removed or 
                     // if power was not kept.
                     if (m_fPowerUpDisabledInts) {
@@ -1881,6 +1997,7 @@ CSDHCSlotBase::SetHardwarePowerState(
             WriteWord(SDHC_NORMAL_INT_SIGNAL_ENABLE, m_wIntSignals);
         }
         else {
+
             DEBUGCHK(cpsNew == D4);
             WriteByte(SDHC_CLOCK_CONTROL, 0);
             WriteByte(SDHC_WAKEUP_CONTROL, 0);
@@ -1891,6 +2008,7 @@ CSDHCSlotBase::SetHardwarePowerState(
         m_fSleepsWithPower = FALSE;
     }
     else {
+
         DEBUGCHK(cpsCurrent == D4);
 
         // Coming out of unpowered state - signal card removal
@@ -1918,15 +2036,21 @@ CSDHCSlotBase::DoEnableSDIOInterrupts(
                                       )
 {
     WORD wIntStatusEn = ReadWord(SDHC_NORMAL_INT_STATUS_ENABLE);
+	//WORD wIntSignals = ReadWord(SDHC_NORMAL_INT_SIGNAL_ENABLE);
 
     if (fEnable) {
         wIntStatusEn |= NORMAL_INT_ENABLE_CARD_INT;
+        //wIntSignals |= NORMAL_INT_ENABLE_CARD_INT;
+
     }
     else {
-        wIntStatusEn &= (~NORMAL_INT_ENABLE_CARD_INT);      
+        wIntStatusEn &= (~NORMAL_INT_ENABLE_CARD_INT);   
+		//wIntSignals &= (~NORMAL_INT_ENABLE_CARD_INT);
     }
 
     WriteWord(SDHC_NORMAL_INT_STATUS_ENABLE, wIntStatusEn);
+    //WriteWord(SDHC_NORMAL_INT_STATUS_ENABLE, wIntSignals);
+
 }
 
 
@@ -2020,6 +2144,58 @@ CSDHCSlotBase::IndicateSlotStateChange(SD_SLOT_EVENT sdEvent) {
 }
 
 
+VOID 
+CSDHCSlotBase::UpdateCurrentHCOwned(PSD_BUS_REQUEST pRequest) {
+    SDHCDUpdateCurrentHCOwned(m_pHCDContext,
+        (UCHAR) m_dwSlot, pRequest);
+    return;
+}
+
+SD_API_STATUS 
+CSDHCSlotBase::CheckHardware(PSD_CARD_STATUS pCardStatus) {
+    return SDHCDCheckHardware(m_pHCDContext,
+            (UCHAR) m_dwSlot, pCardStatus);
+}
+
+SD_API_STATUS 
+CSDHCSlotBase::UpcallSetAdaptiveControl(PSD_ADAPTIVE_CONTROL  pAdaptiveControl) {
+    return SDHCDUpcallSetAdaptiveControl(m_pHCDContext,
+            (UCHAR) m_dwSlot, pAdaptiveControl);
+}
+
+SD_API_STATUS 
+CSDHCSlotBase::UpcallGetAdaptiveControl(PSD_ADAPTIVE_CONTROL  pAdaptiveControl) {
+    return SDHCDUpcallGetAdaptiveControl(m_pHCDContext,
+            (UCHAR) m_dwSlot, pAdaptiveControl);
+}
+
+SD_API_STATUS 
+CSDHCSlotBase::GetLocalAdaptiveControl(PSD_ADAPTIVE_CONTROL  pAdaptiveControl) {
+    return SDHCDGetLocalAdaptiveControl(m_pHCDContext,
+            (UCHAR) m_dwSlot, pAdaptiveControl);
+}
+
+SD_API_STATUS 
+CSDHCSlotBase::FreeAllOutStandingRequests() {
+    return SDHCDFreeAllOutStandingRequests(m_pHCDContext, (UCHAR) m_dwSlot);
+}
+
+SD_API_STATUS 
+CSDHCSlotBase::SynchronousSlotStateChange(SD_SLOT_EVENT Event) {
+    return SDHCDSynchronousSlotStateChange(m_pHCDContext, (UCHAR) m_dwSlot, Event);
+}
+
+SD_API_STATUS 
+CSDHCSlotBase::HandleResetDevice() {
+    return SDHCDHandleResetDevice(m_pHCDContext, (UCHAR) m_dwSlot);
+}
+
+VOID 
+CSDHCSlotBase::UnlockCurrentRequest(PSD_BUS_REQUEST pRequest) {
+    SDHCDUnlockRequest(m_pHCDContext, pRequest);
+    return;
+}
+
 PSD_BUS_REQUEST
 CSDHCSlotBase::GetAndLockCurrentRequest() {
     return SDHCDGetAndLockCurrentRequest(m_pHCDContext,
@@ -2086,9 +2262,9 @@ CSDHCSlotBase::IndicateBusRequestComplete(
 
 BOOL CSDHCSlotBase::DetermineCommandPolling()
 {
-    DWORD   dwDivisor =  ((m_wRegClockControl & 0x000000C0) << 8) | (m_wRegClockControl >> 8); // SD3: Bit 07-06 is assigned to bit 09-08 of clock divider
+    DWORD   dwDivisor =  (((m_wRegClockControl & 0x000000C0) >> 6) << 8) | (m_wRegClockControl >> 8); // SD3: Bit 07-06 is assigned to bit 09-08 of clock divider
     DWORD   dwMaxClockRate = (dwDivisor != 0 ? (m_dwMaxClockRate / (2 * dwDivisor)) : m_dwMaxClockRate);
-    return (dwMaxClockRate >= (1000 * 1000)); // If bigger than 1 Mhz, we do the polling.
+    return (dwMaxClockRate >= (10^6)); // If bigger than 1 Mhz, we do the polling.
 }
 
 
@@ -2104,29 +2280,58 @@ CSDHCSlotBase::SetClockRate(
     const DWORD dwClockRate = *pdwRate;
     DWORD       dwMaxClockRate = m_dwMaxClockRate;
     int         i = 0; // 2^i is the divisor value
+	DWORD		div = 0; //sd3 divsor is a multiple of 2
+	DWORD		real_div=0;
 
+    m_wRegClockControl = CLOCK_INTERNAL_ENABLE;
+
+#if BSP_REDUCED_SPEED
     // shift MaxClockRate until we find the closest frequency <= target
     while ( (dwClockRate < dwMaxClockRate) && ( i < 8 ) ) {
         dwMaxClockRate = dwMaxClockRate >> 1;
         i++;
     }
 
-
-    // SD3: divisor could be more accurate. (TBD)
-
-    // set the actual clock rate 
+    // set the actual clock rate
     *pdwRate = dwMaxClockRate;
-    m_wRegClockControl = CLOCK_INTERNAL_ENABLE;
 
     if (i != 0) {
         DWORD dwDivisor = 1 << (i - 1);
         m_wRegClockControl |= (dwDivisor << 8);
     }
-    m_fCommandPolling = DetermineCommandPolling() ;
+#else
+    if(dwClockRate > dwMaxClockRate)
+    {
+        div = 1;
+
+        // set the actual clock rate 
+        *pdwRate = dwClockRate;
+    } else {
+        for (div = 2; div < 2048; div += 2) {
+            if ((dwMaxClockRate / div) <= dwClockRate)
+                break;
+        }
+
+        real_div = div;
+
+        div >>= 1;
+
+        // set the actual clock rate 
+        *pdwRate = dwMaxClockRate / real_div;
+    }
+
+    if(real_div) {
+        m_wRegClockControl |= (div & 0xff) << 8;
+        m_wRegClockControl |= ((div & 0x300) >> 8) << 6;
+    }
+#endif
+
+    m_fCommandPolling = DetermineCommandPolling(); 
     
     DEBUGMSG(SDHC_CLOCK_ZONE,(TEXT("SDHCSetRate - Clock Control Reg = %X\n"), 
         m_wRegClockControl));
     DEBUGMSG(SDHC_CLOCK_ZONE,(TEXT("SDHCSetRate - Actual clock rate = %d\n"), *pdwRate));
+
 }
 
 
@@ -2252,6 +2457,350 @@ BOOL CSDHCSlotBase::SlotFreeDMABuffer(ULONG Length,PHYSICAL_ADDRESS  LogicalAddr
     return TRUE;
 }
 
+//  Handle Idle bus case
+//  for controllers that do not reliably catch CIRQs in 4-bit mode,
+//  temporarily switch to 1-bit while in idle.
+VOID 
+CSDHCSlotBase::IdleBusAdjustment(BOOL Idle) {
+    // must be in 4-bit bus mode to matter
+    if (m_Idle1BitIRQ && m_f4BitMode ) {
+        /* the host controller requires a switch to 1 bit mode to detect interrupts
+        * when the bus is idle.  This is a work around for certain std hosts that
+        * miss interrupts in 4-bit mode */
+        BYTE control;
+        control = ReadByte(SDHC_HOST_CONTROL);
+        /* mask to 1 bit mode */
+        control &= ~HOSTCTL_DAT_WIDTH;     
+        if (!Idle) {       
+            /* switch controller back to 4-bit mode */
+            control |= HOSTCTL_DAT_WIDTH;
+        }
+        WriteByte(SDHC_HOST_CONTROL, control);
+    }
+}
+
+VOID 
+CSDHCSlotBase::HandleSlotReset(BOOL fCancelRequest)
+{
+    if (fCancelRequest) 
+    {
+        CancelRequest();
+    }
+
+    if (m_SlotDma) 
+    {
+        delete m_SlotDma;
+        m_SlotDma = NULL;
+
+        // The Pegasus requires the following so that the next
+        // insertion will work correctly.
+        SoftwareReset(SOFT_RESET_CMD | SOFT_RESET_DAT);
+        WriteWord(SDHC_TRANSFERMODE, 0);
+        WriteDword(SDHC_SYSTEMADDRESS_LO, 0);
+        WriteWord(SDHC_BLOCKSIZE, 0);
+        WriteWord(SDHC_BLOCKCOUNT, 0);
+        WriteWord(SDHC_NORMAL_INT_STATUS, NORMAL_INT_STATUS_DMA);
+        WriteDword(SDHC_ADMA_SYSTEMADDRESS_LO, 0 ); // 32-bit address.
+        WriteDword(SDHC_ADMA_SYSTEMADDRESS_HI, 0 );
+    }
+}
+
+VOID
+CSDHCSlotBase::InitCard()
+{
+    DWORD dwClockRate = SD_DEFAULT_CARD_ID_CLOCK_RATE;
+
+    m_fCardPresent = TRUE;
+    m_fSuspended   = FALSE; 
+
+    // Apply the initial voltage to the card.
+    SetVoltage(GetMaxVddWindow());
+
+    // Send at least 74 clocks to the card over the course of at least 1 ms
+    // with allowance for power supply ramp-up time. (SD Phys Layer 6.4)
+    // Note that power supply ramp-up time occurs in SetVoltage().
+    SetClockRate(&dwClockRate);
+    SDClockOn();
+    DWORD dwSleepMs = 1;
+    if (dwClockRate >= 1000) {
+        dwSleepMs = (74 / (dwClockRate / 1000)) + 1;
+    }
+    Sleep(dwSleepMs);
+    SDClockOff();
+
+    if (m_SlotDma) 
+    {
+        ASSERT(FALSE);
+        delete m_SlotDma;
+        m_SlotDma = NULL;
+    }
+    
+    if (!m_fDisableDMA) {
+        SSDHC_CAPABILITIES caps = GetCapabilities();
+        if (caps.bits.ADMA2) {
+            m_SlotDma = new CSDHCSlotBase32BitADMA2(*this);
+        }
+        else if (caps.bits.SDMA) {
+            m_SlotDma = new CSDHCSlotBaseSDMA(*this);
+        }
+        
+        if (m_SlotDma && !m_SlotDma->Init()) { // failed.
+            delete m_SlotDma;
+            m_SlotDma = NULL;
+        }
+        ASSERT(!(caps.bits.ADMA2 || caps.bits.SDMA) || m_SlotDma!=NULL);
+    }
+}
+
+SD_API_STATUS 
+CSDHCSlotBase::HandleSuspend(BOOL fCancelRequest)
+{
+    SD_API_STATUS status = SD_API_STATUS_UNSUCCESSFUL;
+
+    if (m_fSDIOInterruptsEnabled) 
+    {
+        EnableSDIOInterrupts(FALSE);
+    }
+
+    SDClockOff();
+    HandleSlotReset(fCancelRequest);
+
+    DEBUGMSG (SDCARD_ZONE_INFO, (L"CSDHCSlotBase::HandleSuspend : SynchronousSlotStateChange - DeviceSuspended\n"));
+
+    status = SynchronousSlotStateChange(DeviceSuspended);
+
+    return status;
+}
+
+SD_API_STATUS 
+CSDHCSlotBase::HandleResume()
+{
+    SD_API_STATUS status = SD_API_STATUS_UNSUCCESSFUL;
+
+    //Clear current request
+    m_pCurrentRequest = NULL;
+    FreeAllOutStandingRequests();
+
+    HandleSlotReset(TRUE);
+    Start();
+    InitCard();
+
+    // Interrupts are not enabled on a resumed card.
+    EnableSDIOInterrupts(FALSE);
+
+    DEBUGMSG (SDCARD_ZONE_INFO, (L"CSDHCSlotBase::HandleResume : SynchronousSlotStateChange - DeviceResumed\n"));
+
+    status = SynchronousSlotStateChange(DeviceResumed);
+
+    return status;
+}
+
+VOID 
+CSDHCSlotBase::CancelRequest()
+{
+    // get the current request  
+    PSD_BUS_REQUEST pRequest = GetAndLockCurrentRequest();
+
+    if (pRequest != NULL) 
+    {
+        DEBUGMSG(SDCARD_ZONE_WARN, 
+            (TEXT("Card Removal Detected - Canceling current request: 0x%08X, command: %d\n"), 
+            pRequest, pRequest->CommandCode));
+        DumpRequest(pRequest, SDHC_SEND_ZONE || SDHC_RECEIVE_ZONE);
+        IdleBusAdjustment(ADJUST_BUS_IDLE);
+        IndicateBusRequestComplete(pRequest, SD_API_STATUS_DEVICE_REMOVED);
+        UnlockCurrentRequest(pRequest);
+    }
+}
+
+VOID 
+CSDHCSlotBase::WaitForRequestComplete()
+{
+    // get the current request
+    PSD_BUS_REQUEST pRequest = GetAndLockCurrentRequest();
+
+    if (pRequest != NULL) 
+    {
+        DEBUGMSG(SDCARD_ZONE_WARN, 
+            (TEXT("Waiting for request complete - request: 0x%08X, command: %d\n"), 
+            pRequest, pRequest->CommandCode));
+        UnlockCurrentRequest(pRequest);
+        ::WaitForSingleObject( m_hRequestCompletedEvent, BUS_REQUEST_TIMEOUT);
+    }
+}
+
+VOID
+CSDHCSlotBase::EnableWakeUpSources()
+{
+    BOOL bWakeupControl = m_fSDIOInterruptsEnabled && (m_bWakeupControl & WAKEUP_INTERRUPT) ? 
+        m_bWakeupControl : m_bWakeupControl & ~WAKEUP_INTERRUPT;
+
+    m_wIntSignals = ReadWord(SDHC_NORMAL_INT_SIGNAL_ENABLE);
+    WriteWord(SDHC_NORMAL_INT_SIGNAL_ENABLE, 0);
+    WriteWord(SDHC_NORMAL_INT_STATUS, ReadWord(SDHC_NORMAL_INT_STATUS));
+    WriteByte(SDHC_WAKEUP_CONTROL, bWakeupControl);
+}
+
+VOID
+CSDHCSlotBase::ControlCardPowerOff(
+    BOOL *pbfKeepPower, 
+    BOOL bResetOnSuspendResume,
+    BOOL bPwrControlOnSuspendResume
+    )
+{
+    *pbfKeepPower = TRUE;
+
+    if (bResetOnSuspendResume == FALSE)
+    {
+        m_fSuspended = TRUE;
+        WaitForRequestComplete();
+
+        if (bPwrControlOnSuspendResume == TRUE)
+        {
+            //Handle the suspend, don't unload the driver
+            HandleSuspend(TRUE);
+        }
+        else
+        {
+            SDClockOff();
+            CancelRequest();
+        }
+
+        EnableWakeUpSources();
+        EnableSDIOInterrupts(FALSE);
+    }
+
+    if (bPwrControlOnSuspendResume == TRUE)
+    {
+        m_OldVoltage = ReadByte(SDHC_POWER_CONTROL);
+        WriteByte(SDHC_POWER_CONTROL, 0);
+        *pbfKeepPower = FALSE;
+        DEBUGMSG (SDCARD_ZONE_INFO, (TEXT("CSDHCSlotBase::PowerDown:  KeepPower = FALSE\n")));
+    }
+    else
+    {
+        *pbfKeepPower = TRUE;
+        DEBUGMSG (SDCARD_ZONE_INFO, (TEXT("CSDHCSlotBase::PowerDown:  KeepPower = TRUE\n")));
+    }
+}
+
+VOID
+CSDHCSlotBase::ControlCardPowerOn(
+    BOOL bResetOnSuspendResume,
+    BOOL bPwrControlOnSuspendResume
+)
+{
+    UCHAR powerOn           = 0;
+    DWORD dwPresentState    = 0;
+
+    if (bResetOnSuspendResume == FALSE)
+    {
+        m_fSuspended = FALSE;
+        WriteByte(SDHC_WAKEUP_CONTROL, 0);
+
+        //Check to see if the power was turned off
+        powerOn = ReadByte(SDHC_POWER_CONTROL);
+        if (powerOn == 0)
+        {
+            m_dwVddWindows = DetermineVddWindows();
+            WriteByte(SDHC_POWER_CONTROL, 0);
+            WriteByte(SDHC_POWER_CONTROL, m_OldVoltage);
+            Sleep(GetPowerSupplyRampUpMs());
+        }
+
+        DWORD dwPresentState = ReadDword(SDHC_PRESENT_STATE);
+        if (dwPresentState & STATE_CARD_INSERTED) 
+        {
+            if (powerOn == 0 || CheckHardwareStatus() == FALSE)
+            {
+                HandleResume();
+                EnableSDIOInterrupts(TRUE);
+                
+                if (CheckHardwareStatus() == FALSE)
+                {
+                    //Allow the host driver to disconnect the adapter
+                    EnableSDIOInterrupts(TRUE);
+                    HandleRemoval(FALSE);
+                    Sleep(500);
+                    HandleInsertion();
+                }
+                else
+                {
+                    EnableSDIOInterrupts(FALSE);
+                }
+            }
+            else
+            {
+                //Restore SDIOInterrupts
+                EnableSDIOInterrupts(TRUE);
+                RestoreInterrupts(TRUE);
+            }
+        }
+    }
+}
+
+VOID 
+CSDHCSlotBase::RestoreInterrupts(BOOL UseNewRestoreMethod)
+{
+    DEBUGMSG (SDCARD_ZONE_INFO, (TEXT("CSDHCSlotBase::RestoreInterrupts! \n")));
+
+    if(UseNewRestoreMethod) {
+        //These interrupts are necessary after power up.
+        m_wIntSignals |= NORMAL_INT_ENABLE_CARD_INT;
+        m_wIntSignals |= NORMAL_INT_ENABLE_DMA;
+        WriteWord(SDHC_NORMAL_INT_SIGNAL_ENABLE, m_wIntSignals);
+        Sleep(GetPowerSupplyRampUpMs());
+    }
+    else {
+        WORD wIntStatus = ReadWord(SDHC_NORMAL_INT_STATUS);
+        if (wIntStatus == NORMAL_INT_STATUS_CARD_INT) {
+            // We woke system through a card interrupt. We need to clear
+            // this so that the IST will not be signalled.
+            EnableSDIOInterrupts(FALSE);
+            m_fPowerUpDisabledInts = TRUE;
+        }
+    }
+}
+
+
+BOOL
+CSDHCSlotBase::CheckHardwareStatus()
+{
+    //Test Code:   This helps to determine if the IO is setup correctly
+
+    SD_API_STATUS           status                      = SD_API_STATUS_SUCCESS;
+    SD_CARD_STATUS          CardStatus                  = {0};
+
+    SDClockOn();
+    SoftwareReset(SOFT_RESET_CMD);
+    SoftwareReset(SOFT_RESET_DAT);
+    DEBUGMSG (SDCARD_ZONE_INFO, (TEXT("CSDHCSlotBase::CheckHardware: Check Bus Connection issue SD_CMD_SEND_STATUS! \n")));
+    status = CheckHardware(&CardStatus);
+    DEBUGMSG (SDCARD_ZONE_INFO, (TEXT("Status: 0x%08X, current state: %d \r\n"), CardStatus, SD_STATUS_CURRENT_STATE(CardStatus)));
+    SDClockOff();
+    return SD_API_SUCCESS(status);
+}
+
+//Factory Method for Creating Power Control
+SD_API_STATUS 
+CSDHCSlotBase::CreatePowerCtrl(SDCARD_DEVICE_TYPE device0Type, PTCHAR loadPath)
+{
+    SD_API_STATUS status = SD_API_STATUS_UNSUCCESSFUL;
+    if (device0Type == Device_SD_IO) //Also add load path here for AR6K
+    {
+        CSDHCPowerCtrlPersist* pCSDHCPowerCtrlPersist = new CSDHCPowerCtrlPersist();
+        m_pSDHCPowerCtrlBase = pCSDHCPowerCtrlPersist;
+    }
+    else
+    {
+        m_pSDHCPowerCtrlBase = new CSDHCPowerCtrlBase();
+    }
+    if (m_pSDHCPowerCtrlBase)
+    {
+        status = m_pSDHCPowerCtrlBase->Init(this);
+    }
+    return status;
+}
 
 #ifdef DEBUG
 
@@ -2327,25 +2876,3 @@ CSDHCSlotBase::DumpRegisters(
 #endif
 
 // DO NOT REMOVE --- END EXTERNALLY DEVELOPED SOURCE CODE ID --- DO NOT REMOVE
-
-// Handle Idle bus case
-//  for controllers that do not reliably catch CIRQs in 4-bit mode,
-//  temporarily switch to 1-bit while in idle.
-VOID 
-CSDHCSlotBase::IdleBusAdjustment(BOOL Idle) {
-    // must be in 4-bit bus mode to matter
-    if (m_Idle1BitIRQ && m_f4BitMode ) {
-        /* the host controller requires a switch to 1 bit mode to detect interrupts
-        * when the bus is idle.  This is a work around for certain std hosts that
-        * miss interrupts in 4-bit mode */
-        BYTE control;
-        control = ReadByte(SDHC_HOST_CONTROL);
-        /* mask to 1 bit mode */
-        control &= ~HOSTCTL_DAT_WIDTH;     
-        if (!Idle) {       
-            /* switch controller back to 4-bit mode */
-            control |= HOSTCTL_DAT_WIDTH;
-        }
-        WriteByte(SDHC_HOST_CONTROL, control);
-    }
-}

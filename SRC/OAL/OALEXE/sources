@@ -74,8 +74,8 @@ TARGETLIBS= \
     $(_PLATLIB)\$(_CPUINDPATH)\oal_intr_x86.lib \
     $(_PLATLIB)\$(_CPUINDPATH)\oal_power_atom.lib \
     $(_PLATCOMMONLIB)\$(_CPUINDPATH)\oal_rtc_x86.lib \
-    $(_PLATCOMMONLIB)\$(_CPUINDPATH)\oal_timer_x86.lib \
-    $(_PLATCOMMONLIB)\$(_CPUINDPATH)\oal_qpc_x86.lib \
+    $(_PLATLIB)\$(_CPUINDPATH)\oal_timer_atom.lib \
+    $(_PLATLIB)\$(_CPUINDPATH)\oal_qpc_atom.lib \
     $(_PLATLIB)\$(_CPUINDPATH)\oal_memory_atom.lib \
     $(_PLATCOMMONLIB)\$(_CPUINDPATH)\oal_other_x86.lib \
     $(_PLATLIB)\$(_CPUINDPATH)\oal_ioctl_atom.lib \
@@ -89,10 +89,24 @@ TARGETLIBS= \
     $(_PLATCOMMONLIB)\$(_CPUDEPPATH)\oal_strings.lib \
     $(_COMMONOAKROOT)\lib\$(_CPUINDPATH)\ddk_io.lib \
     $(_COMMONOAKROOT)\lib\$(_CPUDEPPATH)\loadauth.lib \
+!IF "$(BSP_APIC)" == "1"
+    $(_WINCEROOT)\platform\intel_cs\src\common\acpica\acpica_debugger.lib \
+    $(_WINCEROOT)\platform\intel_cs\src\common\acpica\acpica_disassembler.lib \
+    $(_WINCEROOT)\platform\intel_cs\src\common\acpica\acpica_dispatcher.lib \
+    $(_WINCEROOT)\platform\intel_cs\src\common\acpica\acpica_events.lib \
+    $(_WINCEROOT)\platform\intel_cs\src\common\acpica\acpica_hardware.lib \
+    $(_WINCEROOT)\platform\intel_cs\src\common\acpica\acpica_namespace.lib \
+    $(_WINCEROOT)\platform\intel_cs\src\common\acpica\acpica_interpreter.lib \
+    $(_WINCEROOT)\platform\intel_cs\src\common\acpica\acpica_parser.lib \
+    $(_WINCEROOT)\platform\intel_cs\src\common\acpica\acpica_resources.lib \
+    $(_WINCEROOT)\platform\intel_cs\src\common\acpica\acpica_tables.lib \
+    $(_WINCEROOT)\platform\intel_cs\src\common\acpica\acpica_utilities.lib \
+    $(_PLATLIB)\$(_CPUDEPPATH)\acpica_os_wince.lib \
+!ENDIF
 !IF ($(_WINCEOSVER) < 800 )
     $(_COMMONOAKROOT)\lib\$(_CPUINDPATH)\fulllibc.lib
 !ELSE
-	$(_COMMONOAKROOT)\lib\$(_CPUINDPATH)\bootcrt.lib
+    $(_COMMONOAKROOT)\lib\$(_CPUINDPATH)\bootcrt.lib
 !ENDIF
 
 !IF "$(BSP_WEA)" == "1"

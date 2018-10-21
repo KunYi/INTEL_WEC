@@ -203,6 +203,14 @@ SDHCDGetHCFunctions(
         pFunctions->pUnlockRequest = &CSDHostContainer::SDHCDUnlockRequest__X;
         pFunctions->pGetAndLockCurrentRequest = &CSDHostContainer::SDHCDGetAndLockCurrentRequest__X;
         pFunctions->pPowerUpDown = &CSDHostContainer::SDHCDPowerUpDown__X;
+        pFunctions->pUpdateCurrentHCOwned = &CSDHostContainer::SDHCDUpdateCurrentHCOwned__X;
+        pFunctions->pCheckHardware = &CSDHostContainer::SDHCDCheckHardware__X;
+        pFunctions->pUpcallSetAdaptiveControl = &CSDHostContainer::SDHCDUpcallSetAdaptiveControl__X;
+        pFunctions->pUpcallGetAdaptiveControl = &CSDHostContainer::SDHCDUpcallGetAdaptiveControl__X;
+        pFunctions->pGetLocalAdaptiveControl = &CSDHostContainer::SDHCDGetLocalAdaptiveControl__X;
+        pFunctions->pFreeAllOutStandingRequests = &CSDHostContainer::SDHCDFreeAllOutStandingRequests__X;
+        pFunctions->pSynchronousSlotStateChange = &CSDHostContainer::SDHCDSynchronousSlotStateChange__X;
+        pFunctions->pHandleResetDevice = &CSDHostContainer::SDHCDHandleResetDevice__X;
 
         status = SD_API_STATUS_SUCCESS;
     }

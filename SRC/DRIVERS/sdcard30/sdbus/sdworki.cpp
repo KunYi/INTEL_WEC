@@ -25,7 +25,7 @@ Abstract:
 Notes: 
 --*/
 #include <windows.h>
-#include "../../INC/types.h"
+#include <types.h>
 
 #include <sdhcd.h>
 
@@ -41,14 +41,16 @@ Notes:
 //      
 ///////////////////////////////////////////////////////////////////////////////
 CSDWorkItem::CSDWorkItem(DWORD dwMaxItem)
-:   CMiniThread( 0, TRUE)
-,   m_dwMaxOfSlotEvent(max(dwMaxItem,MIN_WORK_ITEM))
+:   CMiniThread( 0, TRUE),
+    m_dwMaxOfSlotEvent(max(dwMaxItem,MIN_WORK_ITEM))
 {
     CeSetThreadAffinity(GetThreadHandle(), 1);
     m_psdSlotEvent = new SD_SLOT_EVENT [m_dwMaxOfSlotEvent];
     m_hWakeupEvent = CreateEvent(NULL,FALSE,TRUE,NULL);
     m_hEmptySlotSem = CreateSemaphore(NULL, m_dwMaxOfSlotEvent-1, m_dwMaxOfSlotEvent-1,NULL);
-    m_dwReadIndex = m_dwWriteIndex = 0; 
+    m_dwReadIndex = m_dwWriteIndex = 0;
+    m_bInitialized = FALSE;
+    m_bSuspended = FALSE;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -61,29 +63,91 @@ CSDWorkItem::CSDWorkItem(DWORD dwMaxItem)
 CSDWorkItem::~CSDWorkItem() 
 {
 
+    Lock();
     m_bTerminated = TRUE;
     ThreadStart();
-    if ( m_hWakeupEvent )
-        SetEvent(m_hWakeupEvent);
-    VERIFY(WaitThreadComplete( 5000 ));
+    Stop();
     if (m_hEmptySlotSem!=NULL)
         CloseHandle(m_hEmptySlotSem);
     if (m_hWakeupEvent!=NULL)
         CloseHandle(m_hWakeupEvent);
-    delete [] m_psdSlotEvent;
+    delete m_psdSlotEvent;
+    Unlock();
 }
 
 BOOL CSDWorkItem::Init(DWORD  dwCeThreadPriority)
 {
-    if (m_psdSlotEvent!=NULL && m_hWakeupEvent!=NULL && m_hEmptySlotSem!=NULL) {
-         CeSetPriority( (int)dwCeThreadPriority );
-         ThreadStart();
-         return TRUE;
-    };
-    ASSERT(FALSE);
-    return FALSE;
+    BOOL bRet = FALSE;
+    Lock();
+    if  (
+        m_psdSlotEvent  != NULL && 
+        m_hWakeupEvent  != NULL && 
+        m_hEmptySlotSem != NULL
+        )
+    {
+        //If not initialized already initialize it
+        if( m_bInitialized == FALSE)
+        {
+            m_dwCeThreadPriority = dwCeThreadPriority;
+            CeSetPriority( (int)m_dwCeThreadPriority );
+            ThreadStart();
+            m_bInitialized = TRUE;
+        }
+        bRet = TRUE;
+    }
+    Unlock();
+    return bRet;
     
 }
+
+BOOL CSDWorkItem::Stop()
+{
+    BOOL bRet = FALSE;
+    Lock();
+    if  (
+        m_bInitialized  == TRUE &&
+        m_psdSlotEvent  != NULL && 
+        m_hWakeupEvent  != NULL && 
+        m_hEmptySlotSem != NULL
+        ) 
+    {
+        VERIFY(ReleaseSemaphore(m_hEmptySlotSem,1,NULL));
+        m_dwReadIndex = m_dwWriteIndex = 0;
+        SetEvent(m_hWakeupEvent);
+        ThreadStop();
+        bRet = TRUE;
+    };
+    m_bSuspended = bRet;
+    ASSERT(FALSE);
+    Unlock();
+    return bRet;
+    
+}
+
+BOOL CSDWorkItem::ReStart()
+{
+    BOOL bRet = FALSE;
+    Lock();
+    if  (
+        m_bInitialized  == TRUE &&
+        m_bSuspended    == TRUE &&
+        m_psdSlotEvent  != NULL && 
+        m_hWakeupEvent  != NULL && 
+        m_hEmptySlotSem != NULL
+        )
+    {
+        VERIFY(ReleaseSemaphore(m_hEmptySlotSem,1,NULL));
+        m_dwReadIndex = m_dwWriteIndex = 0;
+        SetEvent(m_hWakeupEvent);
+        bRet = Init(m_dwCeThreadPriority);
+        m_bSuspended = (bRet == TRUE) ? FALSE : TRUE;
+    };
+    ASSERT(FALSE);
+    Unlock();
+    return bRet;
+    
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 //  PostMessage - post a message
 //  Input:  pMessage - message to post

@@ -309,8 +309,8 @@ typedef struct _SPI_REGISTERS
 #define PRV_GENERAL_LTR_MODE        0x00000004
 
 
-#define PRV_CS_CTRL_MODE_SW         0
-#define PRV_CS_CTRL_STATE_HI_BIT    0x01
+#define PRV_CS_CTRL_MODE_SW         1
+#define PRV_CS_CTRL_STATE_HI_BIT    2
 #define PRV_CS_CTRL_STATE_SHIFT     1
 
 #define DEFAULT_DMA_BUFFER_SIZE     4092

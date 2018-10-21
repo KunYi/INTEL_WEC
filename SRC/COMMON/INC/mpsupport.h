@@ -152,6 +152,101 @@ typedef enum {
     MP_IMCRP =3                    //To check the IMCR presence bit
 } MP_FPS_TYPE;
 
+#define MAX_IOAPIC_ENTRY 	64	//max of I/O Apic entries
+#define MAX_IA_ENTRY 		256 //max of I/O interrupt Assignment entries
+#define MAX_BUS_ENTRY		256
+
+#define MP_POLARITY_MASK     (3)         // 00-01: Polarity of APIC I/O input signals
+#define MP_TRIGGER_MASK      (3<<2)      // 02-03: Trigger mode of APIC input signals
+
+#define MP_PIN_MASK     (3)         // 00-01: Polarity of APIC I/O input signals
+#define MP_DEVICE_MASK      (31<<2)     // 02-03: Trigger mode of APIC input signals
+
+#define SHIFTLEFT(b) (1 << (b))
+
+#define APIC_CHIP_SIZE           0x40
+#define APIC_IND                 0x00
+#define APIC_DAT                 0x10
+#define APIC_EOIR                0x40
+#define APIC_IND_ID              0x00
+#define APIC_IND_VER             0x01
+#define APIC_IND_REDIR_TBL_BASE  0x10
+
+
+//data Structure for Multi-processor Floating Point Structure (MP FPS)
+typedef struct {
+	CHAR    	Signature[4];   // FPS Signature "_MP_"
+	ULONG    PhysAddrPtr;   // Physical address of the MP configuration table.
+	UCHAR    Length;        // The length of the floating pointer structure table
+	UCHAR    Spec;          // The version number of the MP specification supported.
+	UCHAR    CheckSum;      // Checksum of the complete pointer structure
+	UCHAR    Feature1;      // Bits 0-7: MP System Configuration Type.
+	UCHAR    Feature2;      // Bit 7: IMCRP (IMCR presence bit)
+	UCHAR    Feature3;      // Reserved
+	UCHAR    Feature4;      // Reserved
+	UCHAR    Feature5;      // Reserved
+}MP_FPS;
+
+
+typedef struct  {
+	UCHAR type;
+	UCHAR apicid;		// Local APIC number
+	UCHAR apicver;		// Its versions
+	UCHAR cpuflag;
+	ULONG cpufeature;
+	ULONG  featureflag;	// CPUID feature value
+	ULONG  reserved[2];
+}MP_CPU;
+
+
+//data Structure for Multi-processor table configure (MP TABLE)
+typedef struct {
+	CHAR     Signature[4];   // mp table Signature "_PCMP_"
+	USHORT   Length;        // table size
+	UCHAR    Spec;
+	UCHAR    CheckSum;
+	UCHAR    Oem[8];
+	UCHAR    Productid[12];
+	DWORD    Oemptr;
+	USHORT   Oemsize;
+	USHORT   Oemcount;
+	DWORD    lapic;
+	DWORD    reserved;
+}MP_TABLE;
+
+typedef struct {
+	UCHAR	type;
+	UCHAR 	busid;
+	UCHAR 	bustype[6];
+}MP_BUS;
+
+typedef struct  {
+	UCHAR	type;
+	UCHAR	apicid;
+	UCHAR	apicver;
+	UCHAR	flags;
+	DWORD apicaddr;
+}MP_IOAPIC;
+
+typedef struct  {
+	UCHAR	type;
+	UCHAR	irqtype;
+	USHORT	irqflag;
+	UCHAR	srcbus;
+	UCHAR 	srcbusirq;
+	UCHAR 	dstapic;
+	UCHAR 	dstirq;
+}MP_INTSRC;
+
+typedef struct  {
+	UCHAR	type;
+	UCHAR	irqtype;
+	USHORT	irqflag;
+	UCHAR	srcbusid;
+	UCHAR	srcbusirq;
+	UCHAR	destapic;
+	UCHAR	destapiclint;
+}MP_LINTSRC;
 
 //------------------------------------------------------------------------------
 //
@@ -169,6 +264,87 @@ typedef enum {
 //  FALSE - indicate fail or un-supported feature
 //  TRUE  - indicate suscess or supported feature
 BOOL GetMPFpsInfo(MP_FPS_TYPE Type, DWORD *pdwData);
+BOOL MpGlobalSystemInterruptInfo();
+void MpPciIrqMapping();
+void x86InitMPTable();
+void x86UnInitMPTable();
 
+// Struct of PCI header
+typedef struct
+{
+    USHORT vendorID;
+    USHORT deviceID;
+    USHORT command;
+    USHORT status;
+    UCHAR  revisionID;
+    UCHAR  progIf;
+    UCHAR  subClass;
+    UCHAR  baseClass;
+    UCHAR  cacheLineSize;
+    UCHAR  latencyTimer;
+    UCHAR  headerType;
+    UCHAR  bist;
+    DWORD  bar[6];
+    DWORD  cis;
+    USHORT subVendorId;
+    USHORT subId;
+    DWORD  romBaseAddress;
+    UCHAR  capabilities;
+    UCHAR  reserved[7];
+    UCHAR  interruptLine;
+    UCHAR  interruptPin;
+    UCHAR  minGnt;
+    UCHAR  maxLat;
+} PciConfig_Header;
+
+// struct of PCI bridge header
+typedef struct
+{
+    USHORT vendorID;
+    USHORT deviceID;
+    USHORT command;
+    USHORT status;
+    UCHAR  revisionID;
+    UCHAR  progIf;
+    UCHAR  subClass;
+    UCHAR  baseClass;
+    UCHAR  cacheLineSize;
+    UCHAR  latencyTimer;
+    UCHAR  headerType;
+    UCHAR  bist;
+    DWORD  bar[2];
+    UCHAR  primaryBusNumber;
+    UCHAR  secondaryBusNumber;
+    UCHAR  subordinateBusNumber;
+    UCHAR  secondaryLatencyTimer;
+    UCHAR  ioBase;
+    UCHAR  ioLimit;
+    USHORT secondaryStatus;
+    USHORT memoryBase;
+    USHORT memoryLimit;
+    USHORT preFetchMemoryBase;
+    USHORT prefetchMemoryLimit;
+    DWORD  preFetchBaseUpper;
+    DWORD  prefetchLimitUpper;
+    USHORT ioBaseUpper;
+    USHORT ioLimitUpper;
+    UCHAR  capabilities;
+    UCHAR  reserved[3];
+    DWORD  romBaseAddress;
+    UCHAR  interruptLine;
+    UCHAR  interruptPin;
+    USHORT bridgeControl;
+} PciConfig_BridgeHeader;
+
+//struct of  LPC (Intel Low Pin Count chip) PCI header
+typedef struct
+{
+    PciConfig_Header  header;
+
+    UCHAR  deviceSpecific1[145];
+	DWORD  gen_cntl;
+    UCHAR  deviceSpecific2[28];
+    DWORD  rcba;
+} PciConfig_Lpc;
 
 #endif

@@ -69,7 +69,7 @@ Notes:
 --*/
 
 #include <windows.h>
-#include <pc.h>
+#include <pc_smp.h>
 #include <wdm.h> // for READ_PORT_UCHAR, WRITE_PORT_UCHAR
 #include <oal.h>
 #include "x86kitl.h"

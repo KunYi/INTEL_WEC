@@ -32,6 +32,12 @@ Notes:
 #include "sdbusreq.hpp"
 
 
+typedef CSDDevice*      SDBUS_PCSDDEVICE;
+typedef CSDHost*        SDBUS_PCSDHOST;
+typedef CSDSlot*        SDBUS_PCSDSLOT;
+typedef CSDBusRequest*  SDBUS_PCSDBUSREQUEST;
+
+
 
 ///////////////////////////////////////////////////////////////////////////////
 // DefaultChangeCardPower - Default power allocation/deallocation handler for the 
@@ -50,12 +56,15 @@ Notes:
 /////////////////////////////////////////////////////////////////////////////// 
 SD_API_STATUS CSDHost::DefaultChangeCardPower(PSDCARD_HC_CONTEXT pHCCardContext,DWORD Slot,INT CurrentDelta)
 {
-    USHORT  SlotPower = 0;
-    INT     NewSlotPower = 0;
+
+    USHORT          SlotPower       = 0;
+    INT             NewSlotPower    = 0;
+    SDBUS_PCSDHOST  pHost           = (SDBUS_PCSDHOST) pHCCardContext;
+    DWORD           dwHostIndex     = MAXDWORD;
+    SD_API_STATUS   status          = SD_API_STATUS_NO_SUCH_DEVICE;
+
     PREFAST_ASSERT(pHCCardContext!=NULL);
-    CSDHost * pHost = (CSDHost *) pHCCardContext;
-    DWORD dwHostIndex = MAXDWORD;
-    SD_API_STATUS status = SD_API_STATUS_NO_SUCH_DEVICE;
+
     __try {
         dwHostIndex = pHost->m_dwSdHostIndex ;
     }
@@ -167,6 +176,7 @@ BOOL CSDHost::Detach()
 SD_API_STATUS CSDHost::SlotSetupInterface(DWORD dwSlot, PSD_CARD_INTERFACE_EX psdCardInterfaceEx )
 {
     SD_API_STATUS status = SD_API_STATUS_INVALID_PARAMETER;
+
     if (psdCardInterfaceEx!= NULL && dwSlot < m_dwNumOfSlot && m_SlotArray[dwSlot]!=NULL) {
         if (psdCardInterfaceEx->InterfaceModeEx.bit.sdHighSpeed == 0 ) { // we can do this on old API.
             SD_CARD_INTERFACE sdCardInterface = ConvertFromEx(*psdCardInterfaceEx);
@@ -190,11 +200,14 @@ CSDHostContainer::CSDHostContainer(LPCTSTR pszActiveKey)
 :   DefaultBusDriver(pszActiveKey)
 ,   m_deviceKey(pszActiveKey)
 {
+    DWORD   dwType      = 0;
+    DWORD   dwDataLen   = 0;
+
     m_pFreeBusRequestSpace = NULL ;
     m_dwMinSize=0;
     m_szSubBusNamePrefix[0] = 0 ;
-    DWORD dwType;
-    DWORD dwDataLen = sizeof(m_szSubBusNamePrefix) ;
+    dwDataLen = sizeof(m_szSubBusNamePrefix);
+
     if (m_deviceKey.IsKeyOpened() && 
             m_deviceKey.RegQueryValueEx(SD_SUB_BUSNAME_VALNAME,&dwType,(PBYTE)m_szSubBusNamePrefix,&dwDataLen) &&
             dwType == SD_SUB_BUSNAME_VALTYPE ) {
@@ -240,6 +253,7 @@ DWORD CSDHostContainer::GetBusNamePrefix(__out_ecount(dwSizeInUnit) LPTSTR lpRet
 PVOID CSDHostContainer::AllocateBusRequestImp(size_t stSize)
 {
     PVOID pReturn = NULL ;
+
     ((CStaticContainer *)this)->Lock();
     if (stSize> m_dwMinSize) {
         DEBUGMSG(SDCARD_ZONE_WARN && m_dwMinSize!=0,(L"AllocateBusRequest Changed From %d, to %d",m_dwMinSize,stSize) );
@@ -266,6 +280,7 @@ PVOID CSDHostContainer::AllocateBusRequestImp(size_t stSize)
 CSDHost * CSDHostContainer::GetSDHost(CSDHost * pUnknowHost)
 {
     DWORD dwIndex = MAXDWORD;
+
     if (pUnknowHost) {
         __try { dwIndex = pUnknowHost->GetIndex(); }
         __except(SDProcessException(GetExceptionInformation())) {
@@ -286,7 +301,7 @@ CSDHost * CSDHostContainer::GetSDHost(CSDHost * pUnknowHost)
 ///////////////////////////////////////////////////////////////////////////////
 DWORD CSDHostContainer::GetSlotInfo(PBYTE pslotInfoArray, DWORD Length, BOOL fInfoEx) 
 {
-    ULONG                   slotCount = 0;          // running slot count
+    ULONG slotCount = 0; // running slot count
 
     ((CStaticContainer *)this)->Lock();
     for (DWORD dwIndex = 0 ; dwIndex < m_dwArraySize; dwIndex++) {
@@ -399,6 +414,7 @@ DWORD CSDHostContainer::GetSlotInfo(PBYTE pslotInfoArray, DWORD Length, BOOL fIn
 BOOL CSDHostContainer::GetHCandSlotbySlotIndex(CSDHost ** ppHost,CSDSlot**ppSlot,DWORD dwSlotIndex )
 {
     BOOL fRet = FALSE;
+
     if (ppHost && ppSlot) {
         ((CStaticContainer *)this)->Lock();
         for (DWORD dwIndex = 0 ; dwIndex < m_dwArraySize; dwIndex++) {
@@ -431,9 +447,10 @@ BOOL CSDHostContainer::GetHCandSlotbySlotIndex(CSDHost ** ppHost,CSDSlot**ppSlot
 SD_API_STATUS CSDHostContainer::GetSlotPowerControlInfo(DWORD slotIndexWanted, 
                                                     PSLOT_POWER_DATA pPCdata) 
 {
-    CSDHost *pHost = NULL;
-    CSDSlot *pSlot = NULL;
-    SD_API_STATUS status  = SD_API_STATUS_NO_SUCH_DEVICE;
+    SDBUS_PCSDHOST  pHost   = NULL;
+    SDBUS_PCSDSLOT  pSlot   = NULL;
+    SD_API_STATUS   status  = SD_API_STATUS_NO_SUCH_DEVICE;
+
     if (GetHCandSlotbySlotIndex(&pHost,&pSlot,slotIndexWanted) && pSlot!=NULL) {
         memset(pPCdata, 0, sizeof(SLOT_POWER_DATA));
         status = pSlot->CheckSlotReady();
@@ -474,9 +491,11 @@ SD_API_STATUS CSDHostContainer::GetFunctionPowerControlInfo(DWORD slotIndexWante
                                                         DWORD FunctionIndexWanted, 
                                                         PFUNCTION_POWER_DATA pFPCdata) 
 {
-    CSDHost *pHost = NULL;
-    CSDSlot *pSlot = NULL;
-    SD_API_STATUS status  = SD_API_STATUS_NO_SUCH_DEVICE;
+
+    SDBUS_PCSDHOST  pHost   = NULL;
+    SDBUS_PCSDSLOT  pSlot   = NULL;
+    SD_API_STATUS   status  = SD_API_STATUS_NO_SUCH_DEVICE;
+
     if (GetHCandSlotbySlotIndex(&pHost,&pSlot,slotIndexWanted) && pSlot!=NULL) {
         memset(pFPCdata, 0, sizeof(FUNCTION_POWER_DATA));
         status = pSlot->CheckSlotReady();
@@ -506,9 +525,11 @@ SD_API_STATUS CSDHostContainer::GetFunctionPowerControlInfo(DWORD slotIndexWante
 ///////////////////////////////////////////////////////////////////////////////
 SD_API_STATUS CSDHostContainer::SetSlotPowerControl(DWORD slotIndexWanted, BOOL  fEnablePowerControl) 
 {
-    CSDHost *pHost = NULL;
-    CSDSlot *pSlot = NULL;
-    SD_API_STATUS status  = SD_API_STATUS_NO_SUCH_DEVICE;
+
+    SDBUS_PCSDHOST  pHost   = NULL;
+    SDBUS_PCSDSLOT  pSlot   = NULL;
+    SD_API_STATUS   status  = SD_API_STATUS_NO_SUCH_DEVICE;
+
     if (GetHCandSlotbySlotIndex(&pHost,&pSlot,slotIndexWanted) && pSlot!=NULL) {
         pSlot->SetSlotPowerControl(fEnablePowerControl);
         status = SD_API_STATUS_SUCCESS ;
@@ -526,9 +547,11 @@ SD_API_STATUS CSDHostContainer::SetSlotPowerControl(DWORD slotIndexWanted, BOOL 
 ///////////////////////////////////////////////////////////////////////////////
 BOOL CSDHostContainer::SlotCardSelectDeselect(DWORD SlotIndexWanted, SD_SLOT_EVENT Event) 
 {
-    BOOL    retStatus = FALSE;          // return status
-    CSDHost *pHost = NULL;
-    CSDSlot *pSlot = NULL;
+
+    BOOL            retStatus   = FALSE;          // return status
+    SDBUS_PCSDHOST  pHost       = NULL;
+    SDBUS_PCSDSLOT  pSlot       = NULL;
+
     if (GetHCandSlotbySlotIndex(&pHost,&pSlot,SlotIndexWanted) && pSlot!=NULL) {
         retStatus= pSlot->SlotCardSelectDeselect(Event);
     }
@@ -541,7 +564,7 @@ BOOL CSDHostContainer::SlotCardSelectDeselect(DWORD SlotIndexWanted, SD_SLOT_EVE
 BOOL 
 CSDHostContainer::SDC_IOControl(DWORD dwCode, PBYTE pBufIn, DWORD dwLenIn, PBYTE pBufOut, DWORD dwLenOut, PDWORD pdwActualOut)
 {
-    DWORD   dwErr = ERROR_SUCCESS;
+    DWORD   dwErr       = ERROR_SUCCESS;
     DWORD   cbActualOut = (DWORD)-1; 
 
     switch (dwCode) {
@@ -702,11 +725,14 @@ CSDHostContainer::SDC_IOControl(DWORD dwCode, PBYTE pBufIn, DWORD dwLenIn, PBYTE
 
 CSDDevice * CSDHostContainer::GetDeviceByDevice(HANDLE hDevice)
 {
-    SDBUS_DEVICE_HANDLE deviceHandle;
+
+    SDBUS_DEVICE_HANDLE     deviceHandle    = {0};
+    SDBUS_PCSDDEVICE        pReturn         = NULL;
+    SDBUS_PCSDHOST          pHost           = NULL;
+
     deviceHandle.hValue = hDevice;
-    
-    CSDDevice * pReturn = NULL;
-    CSDHost *pHost = GetSDHost(deviceHandle.bit.sdBusIndex);
+    pHost = GetSDHost(deviceHandle.bit.sdBusIndex);
+
     if (hDevice!=NULL && deviceHandle.bit.sdF == 0xf) {
         if (pHost) {
             CSDSlot * pSlot = pHost->GetSlot(deviceHandle.bit.sdSlotIndex);
@@ -721,11 +747,13 @@ CSDDevice * CSDHostContainer::GetDeviceByDevice(HANDLE hDevice)
 }
 CSDDevice * CSDHostContainer::GetDeviceByRequest(HANDLE hRequest)
 {
-    SDBUS_REQUEST_HANDLE requestHandle;
+    SDBUS_REQUEST_HANDLE    requestHandle   = {0};
+    SDBUS_PCSDDEVICE        pReturn         = NULL;
+    SDBUS_PCSDHOST          pHost           = NULL;
+
     requestHandle.hValue = hRequest;
-    
-    CSDDevice * pReturn = NULL;
-    CSDHost *pHost = GetSDHost(requestHandle.bit.sdBusIndex);
+    pHost = GetSDHost(requestHandle.bit.sdBusIndex);
+
     if (hRequest!=NULL && requestHandle.bit.sd1f == 0x1f) {
         if (pHost) {
             CSDSlot * pSlot = pHost->GetSlot(requestHandle.bit.sdSlotIndex);
@@ -743,7 +771,11 @@ BOOL
 CSDHostContainer::IOControl(DWORD dwCode, PBYTE pBufIn, DWORD dwLenIn, PBYTE pBufOut, DWORD dwLenOut,
                       PDWORD pdwActualOut)
 {
-    BOOL fRet = FALSE;
+
+    BOOL                fRet        = FALSE;
+    DWORD               dwArg       = 0;
+    SD_API_STATUS       status      = SD_API_STATUS_INVALID_PARAMETER; 
+    SDBUS_PCSDDEVICE    pDevice     = NULL;
 
     switch (dwCode) {
     case IOCTL_BUS_TRANSLATE_BUS_ADDRESS:        
@@ -758,9 +790,10 @@ CSDHostContainer::IOControl(DWORD dwCode, PBYTE pBufIn, DWORD dwLenIn, PBYTE pBu
         break;
     case IOCTL_BUS_SD_SET_CARD_FEATURE:
         if (pBufIn && dwLenIn>=sizeof(IO_SD_SET_CARD_FEATURE) ) {
-            SD_API_STATUS status = SD_API_STATUS_INVALID_PARAMETER; 
+
             IO_SD_SET_CARD_FEATURE SdSetCardFeature = *(PIO_SD_SET_CARD_FEATURE) pBufIn;
-            CSDDevice * pDevice = GetDeviceByDevice (SdSetCardFeature.hDevice);
+
+            pDevice = GetDeviceByDevice (SdSetCardFeature.hDevice);
             if (pDevice) {
                 MarshalledBuffer_t UserBuffer((PVOID) SdSetCardFeature.pInBuf,SdSetCardFeature.nInBufSize,ARG_I_PTR, FALSE, FALSE);
                 status = pDevice->SDSetCardFeature_I(SdSetCardFeature.CardFeature,UserBuffer.ptr(),SdSetCardFeature.nInBufSize) ;
@@ -773,12 +806,13 @@ CSDHostContainer::IOControl(DWORD dwCode, PBYTE pBufIn, DWORD dwLenIn, PBYTE pBu
             SetLastError((DWORD)SD_API_STATUS_INVALID_PARAMETER);
         break;
     case IOCTL_BUS_SD_READ_WRITE_REGISTERS_DIRECT: 
-        if (pBufIn && dwLenIn>= sizeof(IO_SD_CARD_INFO_QUERY)) {
-            SD_API_STATUS status = SD_API_STATUS_INVALID_PARAMETER; 
+        if (pBufIn && dwLenIn>= sizeof(IO_SD_CARD_INFO_QUERY)) {\
+
             IO_SD_READ_WRITE_REGISTERS_DIRECT ReadWriteRegisterDirect = *(PIO_SD_READ_WRITE_REGISTERS_DIRECT) pBufIn;
-            CSDDevice * pDevice = GetDeviceByDevice(ReadWriteRegisterDirect.hDevice);
+
+            pDevice = GetDeviceByDevice(ReadWriteRegisterDirect.hDevice);
             if (pDevice) {
-                DWORD dwArg = (ReadWriteRegisterDirect.ReadWrite==SD_IO_WRITE? ARG_I_PTR: ARG_O_PTR);
+                dwArg = (ReadWriteRegisterDirect.ReadWrite==SD_IO_WRITE? ARG_I_PTR: ARG_O_PTR);
                 if (ReadWriteRegisterDirect.ReadAfterWrite)
                     dwArg|= ARG_O_PTR ;
                 MarshalledBuffer_t UserBuffer((PVOID)ReadWriteRegisterDirect.pBuffer,ReadWriteRegisterDirect.Length,dwArg,FALSE,FALSE);
@@ -794,12 +828,13 @@ CSDHostContainer::IOControl(DWORD dwCode, PBYTE pBufIn, DWORD dwLenIn, PBYTE pBu
         }
         else 
             SetLastError((DWORD)SD_API_STATUS_INVALID_PARAMETER);
-        break;         
+        break;
     case IOCTL_BUS_SD_REGISTER_CLIENT:
         if (pBufIn && dwLenIn>=sizeof(IO_SD_REGISTERCLIENTDEVICE)) {
+
             IO_SD_REGISTERCLIENTDEVICE RegisterClientDriver = *(PIO_SD_REGISTERCLIENTDEVICE) pBufIn;
-            SD_API_STATUS status = SD_API_STATUS_INVALID_PARAMETER; 
-            CSDDevice * pDevice = GetDeviceByDevice(RegisterClientDriver.hDevice);
+
+            pDevice = GetDeviceByDevice(RegisterClientDriver.hDevice);
             if (pDevice) {
                 status = pDevice->RegisterClient(RegisterClientDriver.hCallbackAPI,
                     RegisterClientDriver.pDeviceContext, &RegisterClientDriver.sdClientRegistrationInfo);
@@ -817,11 +852,14 @@ CSDHostContainer::IOControl(DWORD dwCode, PBYTE pBufIn, DWORD dwLenIn, PBYTE pBu
         break;
     case IOCTL_BUS_SD_SYNCHRONOUS_BUS_REQUEST:
         if (pBufIn && dwLenIn>= sizeof(IO_SD_SYNCHRONOUS_BUS_REQUEST)) {
-            SD_API_STATUS status = SD_API_STATUS_INVALID_PARAMETER; 
-            IO_SD_SYNCHRONOUS_BUS_REQUEST SdSyncBusRequest = *(PIO_SD_SYNCHRONOUS_BUS_REQUEST)pBufIn;
-            SD_COMMAND_RESPONSE sdResponse;
+
+            DEBUGMSG (SDCARD_ZONE_INFO, (TEXT("CSDHostContainer::IOControl  IOCTL_BUS_SD_SYNCHRONOUS_BUS_REQUEST \n")));
+
+            IO_SD_SYNCHRONOUS_BUS_REQUEST   SdSyncBusRequest    = *(PIO_SD_SYNCHRONOUS_BUS_REQUEST)pBufIn;
+            SD_COMMAND_RESPONSE             sdResponse          = {NoResponse, 0};
+
             // Mapping Embedded pointer.
-            CSDDevice * pDevice = GetDeviceByDevice(SdSyncBusRequest.hDevice);
+            pDevice = GetDeviceByDevice(SdSyncBusRequest.hDevice);
             if (pDevice) {
                 MarshalledBuffer_t UserBuffer((PVOID)SdSyncBusRequest.pBuffer,
                     SdSyncBusRequest.BlockSize* SdSyncBusRequest.NumBlocks,
@@ -846,11 +884,14 @@ CSDHostContainer::IOControl(DWORD dwCode, PBYTE pBufIn, DWORD dwLenIn, PBYTE pBu
         break;
     case IOCTL_BUS_SD_BUS_REQUEST:
         if (pBufIn && dwLenIn>= sizeof(IO_SD_BUS_REQUEST) && pBufOut && dwLenOut>= sizeof(HANDLE)) {
-            SD_API_STATUS status = SD_API_STATUS_INVALID_PARAMETER; 
-            IO_SD_BUS_REQUEST SdBusRequest = *(PIO_SD_BUS_REQUEST)pBufIn;
-            HANDLE hBusRequest = NULL ;
+
+            DEBUGMSG (SDCARD_ZONE_INFO, (TEXT("CSDHostContainer::IOControl  IOCTL_BUS_SD_BUS_REQUEST \n")));
+
+            IO_SD_BUS_REQUEST   SdBusRequest    = *(PIO_SD_BUS_REQUEST)pBufIn;
+            HANDLE              hBusRequest     = NULL ;
+
             // Mapping Embedded pointer.
-            CSDDevice * pDevice = GetDeviceByDevice(SdBusRequest.hDevice);
+            pDevice = GetDeviceByDevice(SdBusRequest.hDevice);
             if (pDevice) {
                 MarshalledBuffer_t UserBuffer((PVOID)SdBusRequest.pBuffer,
                     SdBusRequest.BlockSize* SdBusRequest.NumBlocks,
@@ -874,11 +915,13 @@ CSDHostContainer::IOControl(DWORD dwCode, PBYTE pBufIn, DWORD dwLenIn, PBYTE pBu
         break;
     case IOCTL_BUS_SD_SYNCHRONOUS_BUS_REQUEST_EX:
         if (pBufIn && dwLenIn>= sizeof(IO_SD_SYNCHRONOUS_BUS_REQUEST_EX)) {
-            SD_API_STATUS status = SD_API_STATUS_INVALID_PARAMETER; 
-            IO_SD_SYNCHRONOUS_BUS_REQUEST_EX SdSyncBusRequest = *(PIO_SD_SYNCHRONOUS_BUS_REQUEST_EX)pBufIn;
-            SD_COMMAND_RESPONSE sdResponse;
+
+            DEBUGMSG (SDCARD_ZONE_INFO, (TEXT("CSDHostContainer::IOControl  IOCTL_BUS_SD_SYNCHRONOUS_BUS_REQUEST_EX \n")));
+            IO_SD_SYNCHRONOUS_BUS_REQUEST_EX    SdSyncBusRequest    = *(PIO_SD_SYNCHRONOUS_BUS_REQUEST_EX)pBufIn;
+            SD_COMMAND_RESPONSE                 sdResponse          = {NoResponse, 0};
+
             // Mapping Embedded pointer.
-            CSDDevice * pDevice = GetDeviceByDevice(SdSyncBusRequest.hDevice);
+            pDevice = GetDeviceByDevice(SdSyncBusRequest.hDevice);
             if (pDevice) {
                 MarshalledBuffer_t UserBuffer((PVOID)SdSyncBusRequest.pBuffer,
                     SdSyncBusRequest.BlockSize* SdSyncBusRequest.NumBlocks,
@@ -904,11 +947,13 @@ CSDHostContainer::IOControl(DWORD dwCode, PBYTE pBufIn, DWORD dwLenIn, PBYTE pBu
         break;
     case IOCTL_BUS_SD_BUS_REQUEST_EX:
         if (pBufIn && dwLenIn>= sizeof(IO_SD_BUS_REQUEST_EX) && pBufOut && dwLenOut>= sizeof(HANDLE)) {
-            SD_API_STATUS status = SD_API_STATUS_INVALID_PARAMETER; 
-            IO_SD_BUS_REQUEST_EX SdBusRequest = *(PIO_SD_BUS_REQUEST_EX)pBufIn;
-            HANDLE hBusRequest = NULL ;
+
+            DEBUGMSG (SDCARD_ZONE_INFO, (TEXT("CSDHostContainer::IOControl  IOCTL_BUS_SD_BUS_REQUEST_EX \n")));
+            IO_SD_BUS_REQUEST_EX    SdBusRequest    = *(PIO_SD_BUS_REQUEST_EX)pBufIn;
+            HANDLE                  hBusRequest     = NULL ;
+
             // Mapping Embedded pointer.
-            CSDDevice * pDevice = GetDeviceByDevice(SdBusRequest.hDevice);
+            pDevice = GetDeviceByDevice(SdBusRequest.hDevice);
             if (pDevice) {
                 MarshalledBuffer_t UserBuffer((PVOID)SdBusRequest.pBuffer,
                     SdBusRequest.BlockSize* SdBusRequest.NumBlocks,
@@ -934,21 +979,27 @@ CSDHostContainer::IOControl(DWORD dwCode, PBYTE pBufIn, DWORD dwLenIn, PBYTE pBu
         break;
     case IOCTL_BUS_SD_FREE_BUS_REQUEST: 
         if (pBufIn && dwLenIn>= sizeof(HANDLE)) {
+
             HANDLE hRequest = *(HANDLE *)pBufIn;
-            CSDDevice * pDevice =  GetDeviceByRequest(hRequest);
+
+            pDevice =  GetDeviceByRequest(hRequest);
             if (pDevice) {
-                pDevice->SDFreeBusRequest_I(hRequest );
+                status = pDevice->SDFreeBusRequest_I(hRequest);
                 pDevice->DeRef();
-                fRet = TRUE;
             }
+            SetLastError(status);
+            fRet = SD_API_SUCCESS(status);
         }
+        else
+            SetLastError((DWORD)SD_API_STATUS_INVALID_PARAMETER);
         break;
     case IOCTL_BUS_SD_REQUEST_RESPONSE: 
         if (pBufIn && dwLenIn>= sizeof(HANDLE) && pBufOut && dwLenOut>=sizeof(SD_COMMAND_RESPONSE)) {
-            SD_API_STATUS status = SD_API_STATUS_INVALID_PARAMETER; 
-            HANDLE hRequest = *(HANDLE *)pBufIn;
-            SD_COMMAND_RESPONSE Response;
-            CSDDevice * pDevice =  GetDeviceByRequest(hRequest);
+
+            HANDLE                  hRequest    = *(HANDLE *)pBufIn;
+            SD_COMMAND_RESPONSE     Response    = {NoResponse, 0};
+
+            pDevice =  GetDeviceByRequest(hRequest);
             if (pDevice) {
                 status = pDevice->SDBusRequestResponse_I(hRequest,&Response );
                 pDevice->DeRef();
@@ -962,11 +1013,73 @@ CSDHostContainer::IOControl(DWORD dwCode, PBYTE pBufIn, DWORD dwLenIn, PBYTE pBu
         else
             SetLastError((DWORD)SD_API_STATUS_INVALID_PARAMETER);
         break;
+    case IOCTL_BUS_SD_IO_CHECK_HARDWARE:
+        if (pBufIn && dwLenIn >= sizeof(SD_DEVICE_HANDLE) && pBufOut && dwLenOut >= sizeof(SD_CARD_STATUS)) {
+
+            HANDLE hDevice = *(HANDLE *)pBufIn;
+
+            pDevice = GetDeviceByDevice(hDevice);
+            if (pDevice) {
+                status = pDevice->SDIOCheckHardware_I((PSD_CARD_STATUS)pBufOut);
+                pDevice->DeRef();
+            }
+            SetLastError(status);
+            fRet = SD_API_SUCCESS(status);
+            if (fRet && pdwActualOut) {
+                *pdwActualOut = sizeof(SD_CARD_STATUS);
+            }
+        }
+        else 
+            SetLastError((DWORD)SD_API_STATUS_INVALID_PARAMETER);
+        break;
+    case IOCTL_BUS_SD_SET_ADAPTIVE_CONTROL:
+        if (pBufIn && dwLenIn >= sizeof(IO_SD_DOT11_ADAPTIVE_CTRL_SETTINGS)) {
+
+            PIO_SD_DOT11_ADAPTIVE_CTRL_SETTINGS pSDAdaptiveControl  = (PIO_SD_DOT11_ADAPTIVE_CTRL_SETTINGS)pBufIn;
+            HANDLE                              hDevice             = pSDAdaptiveControl->hDevice;
+            PSD_ADAPTIVE_CONTROL                pAdaptiveControl    = pSDAdaptiveControl->pAdaptiveControl;
+
+            pDevice = GetDeviceByDevice(hDevice);
+            if (pDevice) {
+                status = pDevice->SDIOSetAdaptiveControl_I(pAdaptiveControl);
+                pDevice->DeRef();
+            }
+            SetLastError(status);
+            fRet = SD_API_SUCCESS(status);
+            if (fRet && pdwActualOut) {
+                *pdwActualOut = sizeof(SD_CARD_STATUS);
+            }
+        }
+        else 
+            SetLastError((DWORD)SD_API_STATUS_INVALID_PARAMETER);
+        break;
+    case IOCTL_BUS_SD_GET_ADAPTIVE_CONTROL:
+        if (pBufIn && dwLenIn >= sizeof(IO_SD_DOT11_ADAPTIVE_CTRL_SETTINGS) && pBufOut && dwLenOut>= sizeof(SD_ADAPTIVE_CONTROL)) {
+
+            PIO_SD_DOT11_ADAPTIVE_CTRL_SETTINGS pSDAdaptiveControl  = (PIO_SD_DOT11_ADAPTIVE_CTRL_SETTINGS)pBufIn;
+            HANDLE                              hDevice             = pSDAdaptiveControl->hDevice;            
+
+            pDevice = GetDeviceByDevice(hDevice);
+            if (pDevice) {
+                pDevice->SDIOGetAdaptiveControl_I((PSD_ADAPTIVE_CONTROL)pBufOut);
+                pDevice->DeRef();
+                status = SD_API_STATUS_SUCCESS;
+            }
+            SetLastError(status);
+            fRet = SD_API_SUCCESS(status);
+            if (fRet && pdwActualOut) {
+                *pdwActualOut = sizeof(SD_CARD_STATUS);
+            }
+        }
+        else 
+            SetLastError((DWORD)SD_API_STATUS_INVALID_PARAMETER);
+        break;
     case IOCTL_BUS_SD_CARD_INFO_QUERY:
         if (pBufIn && dwLenIn>= sizeof(IO_SD_CARD_INFO_QUERY)) {
-            SD_API_STATUS status = SD_API_STATUS_INVALID_PARAMETER; 
+
             PIO_SD_CARD_INFO_QUERY pSdCardInfoQuery = (PIO_SD_CARD_INFO_QUERY)pBufIn;
-            CSDDevice * pDevice =  GetDeviceByDevice(pSdCardInfoQuery->hDevice);
+            
+            pDevice =  GetDeviceByDevice(pSdCardInfoQuery->hDevice);
             if (pDevice) {
                 __try {
                     status = pDevice->SDCardInfoQuery_I(pSdCardInfoQuery->InfoType,pBufOut,dwLenOut);
@@ -981,11 +1094,13 @@ CSDHostContainer::IOControl(DWORD dwCode, PBYTE pBufIn, DWORD dwLenIn, PBYTE pBu
         }
         else 
             SetLastError((DWORD)SD_API_STATUS_INVALID_PARAMETER);
-        break;            
+        break;
     case IOCTL_BUS_SD_CANCEL_BUS_REQUEST:
         if (pBufIn && dwLenIn>=sizeof(HANDLE)) {
+
             HANDLE hRequest = *(HANDLE *)pBufIn;
-            CSDDevice * pDevice = GetDeviceByRequest(hRequest);
+
+            pDevice = GetDeviceByRequest(hRequest);
             if (pDevice) {
                 fRet = pDevice->SDCancelBusRequest_I(hRequest);
             }
@@ -997,10 +1112,11 @@ CSDHostContainer::IOControl(DWORD dwCode, PBYTE pBufIn, DWORD dwLenIn, PBYTE pBu
         break;
     case IOCTL_BUS_SD_GET_TUPLE:
         if (pBufIn && dwLenIn>=sizeof(IO_BUS_SD_GET_TUPLE) ) {
-            SD_API_STATUS status = SD_API_STATUS_INVALID_PARAMETER; 
-            IO_BUS_SD_GET_TUPLE BusSdGetTuple = *(PIO_BUS_SD_GET_TUPLE)pBufIn;
-            DWORD dwBufferSize = dwLenOut;
-            CSDDevice * pDevice = GetDeviceByDevice (BusSdGetTuple.hDevice);
+           
+            IO_BUS_SD_GET_TUPLE BusSdGetTuple   = *(PIO_BUS_SD_GET_TUPLE)pBufIn;
+            DWORD               dwBufferSize    = dwLenOut;
+
+            pDevice = GetDeviceByDevice (BusSdGetTuple.hDevice);
             if (pDevice) {
                 __try {
                     status = pDevice->SDGetTuple_I(BusSdGetTuple.TupleCode, pBufOut,&dwBufferSize, BusSdGetTuple.CommonCIS);
@@ -1021,9 +1137,10 @@ CSDHostContainer::IOControl(DWORD dwCode, PBYTE pBufIn, DWORD dwLenIn, PBYTE pBu
         break;         
     case IOCTL_BUS_SD_IO_CONNECT_INTERRUPT:
         if (pBufIn && dwLenIn>=sizeof(IO_SD_IO_CONNECT_INTERRUPT) ) {
-            SD_API_STATUS status = SD_API_STATUS_INVALID_PARAMETER; 
+
             IO_SD_IO_CONNECT_INTERRUPT SdConnectInterrupt = *(PIO_SD_IO_CONNECT_INTERRUPT)pBufIn;
-            CSDDevice * pDevice = GetDeviceByDevice (SdConnectInterrupt.hDevice);
+
+            pDevice = GetDeviceByDevice (SdConnectInterrupt.hDevice);
             if (pDevice) {
                 status = pDevice->SDIOConnectDisconnectInterrupt(SdConnectInterrupt.sdInterruptCallback.pSdInterruptCallback,TRUE);
                 pDevice->DeRef();
@@ -1036,13 +1153,16 @@ CSDHostContainer::IOControl(DWORD dwCode, PBYTE pBufIn, DWORD dwLenIn, PBYTE pBu
         break;         
     case IOCTL_BUS_SD_IO_DISCONNECT_INTERRUPT:
         if (pBufIn && dwLenIn>=sizeof(SD_DEVICE_HANDLE) ) {
+
             HANDLE hDevice = *(HANDLE *)pBufIn;
-            CSDDevice * pDevice = GetDeviceByDevice (hDevice);
+
+            pDevice = GetDeviceByDevice (hDevice);
             if (pDevice) {
-                pDevice->SDIOConnectDisconnectInterrupt(NULL,FALSE);
+                status = pDevice->SDIOConnectDisconnectInterrupt(NULL, FALSE);
                 pDevice->DeRef();
             }
-            fRet = TRUE;
+            SetLastError(status);
+            fRet = SD_API_SUCCESS(status);
         }
         else 
             SetLastError((DWORD)SD_API_STATUS_INVALID_PARAMETER);
@@ -1158,6 +1278,7 @@ VOID CSDHostContainer::DriverDeInit(PVOID pContent)
     else 
         DEBUGMSG(SDCARD_ZONE_ERROR, (TEXT("SDBusDriver: DeInit called with wrong content\n")));
 };
+
 DWORD CSDHostContainer::RegValueDWORD(LPCTSTR lpRegName,DWORD dwDefault)
 {
     DWORD dwReturn = dwDefault;
@@ -1196,7 +1317,7 @@ SD_API_STATUS CSDHostContainer::SDHCDAllocateContext__X(DWORD NumberOfSlots,
         DEBUGMSG(SDCARD_ZONE_ERROR, (TEXT("SDHCDAllocateContext: invalid parameter \n")));
         return SD_API_STATUS_INVALID_PARAMETER;
     }
-    CSDHost * pNewHost = new CSDHost(NumberOfSlots);
+    SDBUS_PCSDHOST pNewHost = new CSDHost(NumberOfSlots);
     if (pNewHost && pNewHost->Init() && InsertSDHost(pNewHost)) {
         *ppExternalHCContext = pNewHost;
         return SD_API_STATUS_SUCCESS ;
@@ -1223,8 +1344,9 @@ SD_API_STATUS CSDHostContainer::SDHCDAllocateContext__X(DWORD NumberOfSlots,
 ///////////////////////////////////////////////////////////////////////////////
 SD_API_STATUS CSDHostContainer::SDHCDRegisterHostController__X(PSDCARD_HC_CONTEXT pExternalHCContext)
 {
-    CSDHost * pHost = GetSDHost((CSDHost *)pExternalHCContext);
-    SD_API_STATUS status = SD_API_STATUS_UNSUCCESSFUL ;
+    SD_API_STATUS   status  = SD_API_STATUS_UNSUCCESSFUL;
+    SDBUS_PCSDHOST  pHost   = GetSDHost((SDBUS_PCSDHOST)pExternalHCContext);
+
     if (pHost) {
         if (pExternalHCContext->dwVersion > SDCARD_HC_BUS_INTERFACE_VERSION)  {
             DEBUGMSG(SDCARD_ZONE_ERROR, 
@@ -1254,8 +1376,9 @@ SD_API_STATUS CSDHostContainer::SDHCDRegisterHostController__X(PSDCARD_HC_CONTEX
 ///////////////////////////////////////////////////////////////////////////////
 SD_API_STATUS CSDHostContainer::SDHCDDeregisterHostController__X(PSDCARD_HC_CONTEXT pExternalHCContext)
 {
-    SD_API_STATUS status = SD_API_STATUS_UNSUCCESSFUL;
-    CSDHost * psdHost = GetSDHost((CSDHost *)pExternalHCContext);
+    SD_API_STATUS   status  = SD_API_STATUS_UNSUCCESSFUL;
+    SDBUS_PCSDHOST  psdHost = GetSDHost((SDBUS_PCSDHOST)pExternalHCContext);
+
     if (psdHost) {
         VERIFY(RemoveSDHostBy(psdHost->GetIndex()));
         VERIFY(psdHost->Detach());
@@ -1277,7 +1400,8 @@ SD_API_STATUS CSDHostContainer::SDHCDDeregisterHostController__X(PSDCARD_HC_CONT
 ///////////////////////////////////////////////////////////////////////////////
 VOID CSDHostContainer::SDHCDDeleteContext__X(PSDCARD_HC_CONTEXT pExternalHCContext)
 {
-    CSDHost * psdHost  = GetSDHost((CSDHost *)pExternalHCContext);
+    SDBUS_PCSDHOST psdHost  = GetSDHost((SDBUS_PCSDHOST)pExternalHCContext);
+
     if (psdHost) {
         ASSERT(FALSE); // This should not happens because it has been deleted from container.
         VERIFY(RemoveSDHostBy(psdHost->GetIndex()));
@@ -1301,7 +1425,8 @@ VOID CSDHostContainer::SDHCDIndicateSlotStateChange__X(PSDCARD_HC_CONTEXT pExter
                                      DWORD              SlotNumber,
                                      SD_SLOT_EVENT      Event) 
 {
-    CSDHost * psdHost = GetSDHost((CSDHost *)pExternalHCContext);
+    SDBUS_PCSDHOST psdHost = GetSDHost((SDBUS_PCSDHOST)pExternalHCContext);
+
     if (psdHost ) {
         if ((CSDHost *) pExternalHCContext == psdHost ) {
             CSDSlot * psdSlot = psdHost->GetSlot(SlotNumber) ;
@@ -1337,9 +1462,11 @@ VOID CSDHostContainer::SDHCDPowerUpDown__X(PSDCARD_HC_CONTEXT  pExternalHCContex
                          DWORD               SlotIndex)
 {
     
-    CSDHost * psdHost  = GetSDHost((CSDHost *)pExternalHCContext) ;
+    SDBUS_PCSDHOST  psdHost = GetSDHost((SDBUS_PCSDHOST)pExternalHCContext);
+    SDBUS_PCSDSLOT  psdSlot = NULL;
+
     if (psdHost ) {
-        CSDSlot * psdSlot = psdHost->GetSlot(SlotIndex) ;
+        psdSlot = psdHost->GetSlot(SlotIndex) ;
         if (psdHost->IsAttached() && psdSlot) {
             if (PowerUp){
                 psdSlot->PowerUp();        
@@ -1350,7 +1477,7 @@ VOID CSDHostContainer::SDHCDPowerUpDown__X(PSDCARD_HC_CONTEXT  pExternalHCContex
         psdHost->DeRef();
     }
     else {
-        RETAILMSG(1, (TEXT("SDBusDriver: Passed invalid SDCARD_HC_CONTEXT \n")));
+        DEBUGMSG (SDCARD_ZONE_INFO, (TEXT("SDHCDPowerUpDown__X: Passed invalid SDCARD_HC_CONTEXT \n")));
         DEBUGCHK(FALSE);
         return;
     }
@@ -1371,10 +1498,13 @@ VOID CSDHostContainer::SDHCDIndicateBusRequestComplete__X(PSDCARD_HC_CONTEXT pEx
                                         PSD_BUS_REQUEST    pRequest,
                                         SD_API_STATUS      Status)
 {
-    CSDBusRequest * pBusRequest = (CSDBusRequest *) pRequest;
-    DWORD   dwSDHCIndex = MAXDWORD;
-    DWORD   dwSlotIndex = MAXDWORD;
-    BOOL    fResult = FALSE;
+    SDBUS_PCSDBUSREQUEST    pBusRequest = (SDBUS_PCSDBUSREQUEST) pRequest;
+    DWORD                   dwSDHCIndex = MAXDWORD;
+    DWORD                   dwSlotIndex = MAXDWORD;
+    BOOL                    fResult     = FALSE;
+    SDBUS_PCSDHOST          psdHost     = NULL;
+    SDBUS_PCSDSLOT          psdSlot     = NULL;
+
     if (pBusRequest) {
         __try {
             dwSDHCIndex = pBusRequest->GetDevice().GetSlot().GetHost().GetIndex();
@@ -1383,9 +1513,9 @@ VOID CSDHostContainer::SDHCDIndicateBusRequestComplete__X(PSDCARD_HC_CONTEXT pEx
         __except(EXCEPTION_EXECUTE_HANDLER)  {
         }
     }
-    CSDHost * psdHost  = GetSDHost( dwSDHCIndex ) ;
+    psdHost = GetSDHost( dwSDHCIndex ) ;
     if (psdHost && (PSDCARD_HC_CONTEXT)psdHost == pExternalHCContext) {
-        CSDSlot * psdSlot = psdHost->GetSlot(dwSlotIndex) ;
+        psdSlot = psdHost->GetSlot(dwSlotIndex) ;
         if (psdSlot) {
             fResult = psdSlot->CompleteRequestFromHC(pBusRequest, Status);
         }
@@ -1414,8 +1544,11 @@ VOID CSDHostContainer::SDHCDIndicateBusRequestComplete__X(PSDCARD_HC_CONTEXT pEx
 ///////////////////////////////////////////////////////////////////////////////
 PSD_BUS_REQUEST CSDHostContainer::SDHCDGetAndLockCurrentRequest__X(PSDCARD_HC_CONTEXT pExternalHCContext, DWORD SlotIndex)
 {
-    DWORD   dwSDHCIndex = MAXDWORD;
-    CSDBusRequest * pBusRequest = NULL;
+    DWORD                   dwSDHCIndex = MAXDWORD;
+    SDBUS_PCSDBUSREQUEST    pBusRequest = NULL;
+    SDBUS_PCSDHOST          psdHost     = NULL;
+    SDBUS_PCSDSLOT          psdSlot     = NULL;
+
     if (pExternalHCContext) {
         __try {
             dwSDHCIndex =( (CSDHost *) pExternalHCContext)->GetIndex();
@@ -1423,9 +1556,9 @@ PSD_BUS_REQUEST CSDHostContainer::SDHCDGetAndLockCurrentRequest__X(PSDCARD_HC_CO
         __except(EXCEPTION_EXECUTE_HANDLER)  {
         }
     }
-    CSDHost * psdHost  = GetSDHost( dwSDHCIndex ) ;
+    psdHost  = GetSDHost( dwSDHCIndex );
     if (psdHost && (PSDCARD_HC_CONTEXT)psdHost == pExternalHCContext) {
-        CSDSlot * psdSlot = psdHost->GetSlot(SlotIndex) ;
+        psdSlot = psdHost->GetSlot(SlotIndex) ;
         if (psdSlot) {
             pBusRequest = psdSlot->SDHCGetAndLockCurrentRequest_I();
         }
@@ -1450,9 +1583,12 @@ PSD_BUS_REQUEST CSDHostContainer::SDHCDGetAndLockCurrentRequest__X(PSDCARD_HC_CO
 ///////////////////////////////////////////////////////////////////////////////
 VOID CSDHostContainer::SDHCDUnlockRequest__X(PSDCARD_HC_CONTEXT  pExternalHCContext,PSD_BUS_REQUEST pRequest)
 {
-    DWORD   dwSDHCIndex = MAXDWORD;
-    DWORD   dwSlotIndex = MAXDWORD;
-    BOOL    fSuccess = FALSE;
+    DWORD           dwSDHCIndex = MAXDWORD;
+    DWORD           dwSlotIndex = MAXDWORD;
+    BOOL            fSuccess    = FALSE;
+    SDBUS_PCSDHOST  psdHost     = NULL;
+    SDBUS_PCSDSLOT  psdSlot     = NULL;
+
     if (pExternalHCContext) {
         __try {
             dwSDHCIndex =( (CSDHost *) pExternalHCContext)->GetIndex();
@@ -1461,9 +1597,9 @@ VOID CSDHostContainer::SDHCDUnlockRequest__X(PSDCARD_HC_CONTEXT  pExternalHCCont
         __except(EXCEPTION_EXECUTE_HANDLER)  {
         }
     }
-    CSDHost * psdHost  = GetSDHost( dwSDHCIndex ) ;
+    psdHost  = GetSDHost( dwSDHCIndex ) ;
     if (psdHost && (PSDCARD_HC_CONTEXT)psdHost == pExternalHCContext) {
-        CSDSlot * psdSlot = psdHost->GetSlot(dwSlotIndex) ;
+        psdSlot = psdHost->GetSlot(dwSlotIndex) ;
         if (psdSlot) {
             psdSlot->SDHCDUnlockRequest_I(pRequest) ;
             fSuccess = TRUE;
@@ -1473,6 +1609,338 @@ VOID CSDHostContainer::SDHCDUnlockRequest__X(PSDCARD_HC_CONTEXT  pExternalHCCont
         psdHost->DeRef();
     }
     ASSERT(fSuccess);
+}
+
+
+///////////////////////////////////////////////////////////////////////////////
+// SDHCDUpdateCurrentHCOwned - Updates the owned request
+//                             
+// Input:   pHCContext - host controller context
+//          SlotIndex
+//          pRequest  - the request to update
+// Output:
+// Return:      
+// Notes:   This function updates the request that was replaced
+//          
+//          This request can now be cancelled from any thread context
+///////////////////////////////////////////////////////////////////////////////
+VOID CSDHostContainer::SDHCDUpdateCurrentHCOwned__X(PSDCARD_HC_CONTEXT  pExternalHCContext,
+                                                    DWORD               SlotIndex,
+                                                    PSD_BUS_REQUEST     pRequest)
+{
+    SDBUS_PCSDHOST  psdHost     = NULL;
+    SDBUS_PCSDSLOT  psdSlot     = NULL;
+
+    psdHost  = GetSDHost((SDBUS_PCSDHOST)pExternalHCContext);
+
+    if (psdHost ) {
+        psdSlot = psdHost->GetSlot(SlotIndex) ;
+        if (psdHost->IsAttached() && psdSlot) {
+            psdSlot->SDHCUpdateCurrentHCOwned_I(pRequest);
+        }
+        psdHost->DeRef();
+    }
+    else {
+        DEBUGMSG (SDCARD_ZONE_INFO, (TEXT("SDHCDUpdateCurrentHCOwned__X: Passed invalid SDCARD_HC_CONTEXT \n")));
+        DEBUGCHK(FALSE);
+    }
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// SDHCDCheckHardware - Checks the Hardware State
+//                             
+// Input:   pHCContext - host controller context
+//          SlotIndex
+//          pCardStatus  - the card status
+// Output:
+// Return:      
+// Notes:   this function returns the card status
+//          
+///////////////////////////////////////////////////////////////////////////////
+SD_API_STATUS CSDHostContainer::SDHCDCheckHardware__X(PSDCARD_HC_CONTEXT  pExternalHCContext,
+                                             DWORD               SlotIndex,
+                                             PSD_CARD_STATUS     pCardStatus)
+{
+    SD_API_STATUS   status      = SD_API_STATUS_UNSUCCESSFUL;
+    SDBUS_PCSDHOST  psdHost     = NULL;
+    SDBUS_PCSDSLOT  psdSlot     = NULL;
+
+    psdHost = GetSDHost((SDBUS_PCSDHOST)pExternalHCContext);
+
+    if (psdHost ) {
+        psdSlot = psdHost->GetSlot(SlotIndex) ;
+        if (psdHost->IsAttached() && psdSlot) {
+            status = psdSlot->SDHCCheckHardware_I(pCardStatus);
+        }
+        psdHost->DeRef();
+    }
+    else {
+        DEBUGMSG (SDCARD_ZONE_INFO, (TEXT("SDHCDCheckHardware__X: Passed invalid SDCARD_HC_CONTEXT \n")));
+        DEBUGCHK(FALSE);
+    }
+    return status;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// SDHCDUpcallSetAdaptiveControl__X - Sets the adaptive control to the upper driver
+//                             
+// Input:   pHCContext - host controller context
+//          SlotIndex
+//          pAdaptiveControl  - the adaptive control
+// Output:
+// Return:      
+// Notes:
+//          
+///////////////////////////////////////////////////////////////////////////////
+SD_API_STATUS CSDHostContainer::SDHCDUpcallSetAdaptiveControl__X(PSDCARD_HC_CONTEXT  pExternalHCContext,
+                                             DWORD      SlotIndex,
+                                             PVOID      pAdaptiveControl)
+{
+    SD_API_STATUS   status      = SD_API_STATUS_UNSUCCESSFUL;
+    SDBUS_PCSDHOST  psdHost     = NULL;
+    SDBUS_PCSDSLOT  psdSlot     = NULL;
+
+    psdHost = GetSDHost((CSDHost *)pExternalHCContext);
+
+    if (psdHost ) {
+        psdSlot = psdHost->GetSlot(SlotIndex) ;
+        if (psdHost->IsAttached() && psdSlot) 
+        {
+            __try 
+            {
+                status = psdSlot->SDHCUpcallSetAdaptiveControl_I((PSD_ADAPTIVE_CONTROL)pAdaptiveControl);
+            }
+            __except (SDProcessException(GetExceptionInformation())) 
+            {
+                status = SD_API_STATUS_ACCESS_VIOLATION;
+            }
+        }
+        psdHost->DeRef();
+    }
+    else {
+        DEBUGMSG (SDCARD_ZONE_INFO, (TEXT("SDHCDUpcallSetAdaptiveControl__X: Passed invalid SDCARD_HC_CONTEXT \n")));
+        DEBUGCHK(FALSE);
+    }
+    return status;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// SDHCDUpcallGetAdaptiveControl__X -  Gets the adaptive control from the upper driver
+//                             
+// Input:   pHCContext - host controller context
+//          SlotIndex
+//          pAdaptiveControl  - the adaptive control
+// Output:
+// Return:      
+// Notes:
+//          
+///////////////////////////////////////////////////////////////////////////////
+SD_API_STATUS CSDHostContainer::SDHCDUpcallGetAdaptiveControl__X(PSDCARD_HC_CONTEXT  pExternalHCContext,
+                                             DWORD      SlotIndex,
+                                             PVOID      pAdaptiveControl)
+{
+    SD_API_STATUS   status      = SD_API_STATUS_UNSUCCESSFUL;
+    SDBUS_PCSDHOST  psdHost     = NULL;
+    SDBUS_PCSDSLOT  psdSlot     = NULL;
+
+    psdHost = GetSDHost((CSDHost *)pExternalHCContext);
+
+    if (psdHost ) {
+        psdSlot = psdHost->GetSlot(SlotIndex) ;
+        if (psdHost->IsAttached() && psdSlot) 
+        {
+            __try 
+            {
+                psdSlot->SDHCUpcallGetAdaptiveControl_I((PSD_ADAPTIVE_CONTROL)pAdaptiveControl);
+                status = SD_API_STATUS_SUCCESS;
+            }
+            __except (SDProcessException(GetExceptionInformation())) 
+            {
+                status = SD_API_STATUS_ACCESS_VIOLATION;
+            }
+        }
+        psdHost->DeRef();
+    }
+    else {
+        DEBUGMSG (SDCARD_ZONE_INFO, (TEXT("SDHCDUpcallGetAdaptiveControl__X: Passed invalid SDCARD_HC_CONTEXT \n")));
+        DEBUGCHK(FALSE);
+    }
+    return status;
+}
+
+////////////////////////////////////////////////////////////////////////////////////
+// SDHCDGetLocalAdaptiveControl__X -  Gets the adaptive control from the local slot
+//                             
+// Input:   pHCContext - host controller context
+//          SlotIndex
+//          pAdaptiveControl  - the adaptive control
+// Output:
+// Return:      
+// Notes:
+//          
+////////////////////////////////////////////////////////////////////////////////////
+SD_API_STATUS CSDHostContainer::SDHCDGetLocalAdaptiveControl__X(PSDCARD_HC_CONTEXT  pExternalHCContext,
+                                             DWORD      SlotIndex,
+                                             PVOID      pAdaptiveControl)
+{
+    SD_API_STATUS   status      = SD_API_STATUS_UNSUCCESSFUL;
+    SDBUS_PCSDHOST  psdHost     = NULL;
+    SDBUS_PCSDSLOT  psdSlot     = NULL;
+
+    psdHost = GetSDHost((CSDHost *)pExternalHCContext);
+
+    if (psdHost ) {
+        psdSlot = psdHost->GetSlot(SlotIndex) ;
+        if (psdHost->IsAttached() && psdSlot)
+        {
+            __try 
+            {
+                psdSlot->SDHCGetLocalAdaptiveControl_I((PSD_ADAPTIVE_CONTROL)pAdaptiveControl);
+                status = SD_API_STATUS_SUCCESS;
+            }
+            __except (SDProcessException(GetExceptionInformation())) 
+            {
+                status = SD_API_STATUS_ACCESS_VIOLATION;
+            }
+        }
+        psdHost->DeRef();
+    }
+    else {
+        DEBUGMSG (SDCARD_ZONE_INFO, (TEXT("SDHCDGetLocalAdaptiveControl__X: Passed invalid SDCARD_HC_CONTEXT \n")));
+        DEBUGCHK(FALSE);
+    }
+    return status;
+}
+
+////////////////////////////////////////////////////////////////////////////////////
+// SDHCDGetLocalAdaptiveControl__X -  Frees all the outstanding requests
+//                             
+// Input:   pHCContext - host controller context
+//          SlotIndex
+//          pAdaptiveControl  - the adaptive control
+// Output:
+// Return:      
+// Notes:
+//          
+////////////////////////////////////////////////////////////////////////////////////
+SD_API_STATUS CSDHostContainer::SDHCDFreeAllOutStandingRequests__X(PSDCARD_HC_CONTEXT  pExternalHCContext,
+                                             DWORD      SlotIndex)
+{
+    SD_API_STATUS   status      = SD_API_STATUS_UNSUCCESSFUL;
+    SDBUS_PCSDHOST  psdHost     = NULL;
+    SDBUS_PCSDSLOT  psdSlot     = NULL;
+
+    psdHost = GetSDHost((CSDHost *)pExternalHCContext);
+
+    if (psdHost ) {
+        psdSlot = psdHost->GetSlot(SlotIndex) ;
+        if (psdHost->IsAttached() && psdSlot)
+        {
+            __try 
+            {
+                status = psdSlot->SDHCFreeAllOutStandingRequests_I();
+            }
+            __except (SDProcessException(GetExceptionInformation())) 
+            {
+                status = SD_API_STATUS_ACCESS_VIOLATION;
+            }
+        }
+        psdHost->DeRef();
+    }
+    else {
+        DEBUGMSG (SDCARD_ZONE_INFO, (TEXT("SDHCDFreeAllOutStandingRequests__X: Passed invalid SDCARD_HC_CONTEXT \n")));
+        DEBUGCHK(FALSE);
+    }
+    return status;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+//  SDHCDSynchronousSlotStateChange__X  - synchronous slot change request
+// Input:   pHCContext - host controller context
+//          SlotIndex
+//          SD_SLOT_EVENT   Event
+//  Return: 
+///////////////////////////////////////////////////////////////////////////////
+SD_API_STATUS CSDHostContainer::SDHCDSynchronousSlotStateChange__X(PSDCARD_HC_CONTEXT pExternalHCContext, 
+                                     DWORD              SlotIndex,
+                                     SD_SLOT_EVENT      Event) 
+{
+    SD_API_STATUS   status      = SD_API_STATUS_INVALID_PARAMETER;  // intermediate status
+    SDBUS_PCSDHOST  psdHost     = NULL;
+    SDBUS_PCSDSLOT  psdSlot     = NULL;
+
+    psdHost = GetSDHost((CSDHost *)pExternalHCContext);
+
+    if (psdHost ) {
+        psdSlot = psdHost->GetSlot(SlotIndex) ;
+        __try 
+        {
+            switch(Event)
+            {
+                case DeviceEjected:
+                case DeviceInserted:
+                case DeviceInterrupting:
+                case BusRequestComplete:
+                    RETAILMSG(1, (TEXT("SDHCDSynchronousSlotStateChange__X: event not handled")));
+                    break;
+                case SlotDeselectRequest:
+                case SlotSelectRequest:
+                case SlotResetRequest:
+                    if (psdSlot->HandleSlotSelectDeselect(Event))
+                    {
+                        status = SD_API_STATUS_SUCCESS;
+                    }
+                    break;
+                case DeviceSuspended:
+                    if (psdSlot->HandleSuspendDevice())
+                    {
+                        status = SD_API_STATUS_SUCCESS;
+                    }
+                    break;
+                case DeviceResumed:
+                    if (psdSlot->HandleResumeDevice())
+                    {
+                        status = SD_API_STATUS_SUCCESS;
+                    }
+                    break;
+            }
+        }
+        __except (SDProcessException(GetExceptionInformation())) {
+            status = SD_API_STATUS_ACCESS_VIOLATION;
+        }
+        psdHost->DeRef();
+    }
+    DEBUGMSG(SDCARD_ZONE_ERROR && !SD_API_SUCCESS(status), (TEXT("SDHCDSynchronousSlotStateChange__X: Failed status 0x%08X \n"),status));
+    return status;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+//  SDHCDHandleResetDevice__X
+// Input:   pHCContext - host controller context
+//          SlotIndex
+//  Return: 
+///////////////////////////////////////////////////////////////////////////////
+SD_API_STATUS CSDHostContainer::SDHCDHandleResetDevice__X(PSDCARD_HC_CONTEXT pExternalHCContext, 
+                                     DWORD              SlotIndex) 
+{
+    SD_API_STATUS   status      = SD_API_STATUS_INVALID_PARAMETER;  // intermediate status
+    SDBUS_PCSDHOST  psdHost     = NULL;
+    SDBUS_PCSDSLOT  psdSlot     = NULL;
+
+    psdHost = GetSDHost((CSDHost *)pExternalHCContext) ;
+    if (psdHost ) {
+        psdSlot = psdHost->GetSlot(SlotIndex) ;
+        __try 
+        {
+            status = psdSlot->SDHCHandleResetDevice_I();
+        }
+        __except (SDProcessException(GetExceptionInformation())) {
+            status = SD_API_STATUS_ACCESS_VIOLATION;
+        }
+        psdHost->DeRef();
+    }
+    DEBUGMSG(SDCARD_ZONE_ERROR && !SD_API_SUCCESS(status), (TEXT("SDHCDHandleResetDevice__X: Failed status 0x%08X \n"),status));
+    return status;
 }
 
 
@@ -1489,11 +1957,14 @@ VOID CSDHostContainer::SDHCDUnlockRequest__X(PSDCARD_HC_CONTEXT  pExternalHCCont
 ///////////////////////////////////////////////////////////////////////////////
 SD_API_STATUS SDRegisterClient__X(HANDLE  hDevice,PVOID pDeviceContext, PSDCARD_CLIENT_REGISTRATION_INFO pInfo)
 {
-    SD_API_STATUS   status = SD_API_STATUS_INVALID_PARAMETER;  // intermediate status
-    CSDDevice *     pDevice  = CSDHostContainer::GetDeviceByDevice(hDevice);
+    SD_API_STATUS       status  = SD_API_STATUS_INVALID_PARAMETER;  // intermediate status
+    SDBUS_PCSDDEVICE    pDevice = NULL;
+    
+    pDevice  = CSDHostContainer::GetDeviceByDevice(hDevice);
     if (pDevice) {
         __try {
-            status = pDevice->RegisterClient(NULL,pDeviceContext, pInfo);
+            pDevice->RegisterClient(NULL, pDeviceContext, pInfo);
+            status = SD_API_STATUS_SUCCESS;
         }
         __except (SDProcessException(GetExceptionInformation())) {
             status = SD_API_STATUS_ACCESS_VIOLATION;
@@ -1534,8 +2005,10 @@ SD_API_STATUS SDSynchronousBusRequest__X(SD_DEVICE_HANDLE       hDevice,
                                          DWORD                  Flags,
                                          DWORD cbSize, PPHYS_BUFF_LIST pPhysBuffList)
 {
-    SD_API_STATUS   status = SD_API_STATUS_INVALID_PARAMETER;  // intermediate status
-    CSDDevice *     pDevice = CSDHostContainer::GetDeviceByDevice((HANDLE)hDevice);
+    SD_API_STATUS       status  = SD_API_STATUS_INVALID_PARAMETER;  // intermediate status
+    SDBUS_PCSDDEVICE    pDevice = NULL;
+
+    pDevice = CSDHostContainer::GetDeviceByDevice((HANDLE)hDevice);
     if (pDevice) {
         __try {
             status = pDevice->SDSynchronousBusRequest_I(Command,Argument,TransferClass,ResponseType,pResponse,NumBlocks,BlockSize,pBuffer,Flags,cbSize,pPhysBuffList);
@@ -1582,8 +2055,10 @@ SD_API_STATUS SDBusRequest__X(SD_DEVICE_HANDLE         hDevice,
                               DWORD                    Flags,
                               DWORD cbSize, PPHYS_BUFF_LIST pPhysBuffList )
 {
-    SD_API_STATUS   status = SD_API_STATUS_INVALID_PARAMETER;  // intermediate status
-    CSDDevice *     pDevice = CSDHostContainer::GetDeviceByDevice((HANDLE)hDevice);
+    SD_API_STATUS       status = SD_API_STATUS_INVALID_PARAMETER;  // intermediate status
+    SDBUS_PCSDDEVICE    pDevice = NULL;
+
+    pDevice = CSDHostContainer::GetDeviceByDevice((HANDLE)hDevice);
     if (pDevice) {
         __try {
             status = pDevice->SDBusRequest_I(Command,Argument,TransferClass,ResponseType,NumBlocks,BlockSize,pBuffer,
@@ -1606,15 +2081,19 @@ SD_API_STATUS SDBusRequest__X(SD_DEVICE_HANDLE         hDevice,
 //          this function returns the bus request back to the memory look aside 
 //          list
 ///////////////////////////////////////////////////////////////////////////////
-VOID SDFreeBusRequest__X(HANDLE  hRequest)
+SD_API_STATUS SDFreeBusRequest__X(HANDLE  hRequest)
 {
-    CSDDevice *     pDevice = CSDHostContainer::GetDeviceByRequest((HANDLE)hRequest);
+    SD_API_STATUS       status  = SD_API_STATUS_INVALID_PARAMETER;  // intermediate status
+    SDBUS_PCSDDEVICE    pDevice = NULL;
+    
+    pDevice = CSDHostContainer::GetDeviceByRequest((HANDLE)hRequest);
     if (pDevice) {
-        pDevice->SDFreeBusRequest_I((HANDLE)hRequest);
+        status = pDevice->SDFreeBusRequest_I((HANDLE)hRequest);
         pDevice->DeRef();
     }
     else
         DEBUGMSG(SDCARD_ZONE_ERROR , (TEXT("SDFreeBusRequest__X: Failed:wrong Handle 0x%08X \n"),hRequest));
+    return status;
 }
 ///////////////////////////////////////////////////////////////////////////////
 //  SDCardInfoQuery__X - Obtain Card information
@@ -1631,8 +2110,10 @@ SD_API_STATUS SDCardInfoQuery__X( IN  SD_DEVICE_HANDLE hDevice,
                                  IN  ULONG            StructureSize)
 {
 
-    SD_API_STATUS   status = SD_API_STATUS_INVALID_PARAMETER;  // intermediate status
-    CSDDevice *     pDevice = CSDHostContainer::GetDeviceByDevice((HANDLE)hDevice);
+    SD_API_STATUS       status  = SD_API_STATUS_INVALID_PARAMETER;  // intermediate status
+    SDBUS_PCSDDEVICE    pDevice = NULL;
+
+    pDevice = CSDHostContainer::GetDeviceByDevice((HANDLE)hDevice);
     if (pDevice) {
         __try {
             status = pDevice->SDCardInfoQuery_I(InfoType,pCardInfo,StructureSize);
@@ -1672,8 +2153,10 @@ SD_API_STATUS SDReadWriteRegistersDirect__X(SD_DEVICE_HANDLE       hDevice,
                                             PUCHAR                 pBuffer,
                                             ULONG                  BufferLength)
 {
-    SD_API_STATUS   status = SD_API_STATUS_INVALID_PARAMETER;  // intermediate status
-    CSDDevice *     pDevice = CSDHostContainer::GetDeviceByDevice((HANDLE)hDevice);
+    SD_API_STATUS       status  = SD_API_STATUS_INVALID_PARAMETER;  // intermediate status
+    SDBUS_PCSDDEVICE    pDevice = NULL;
+
+    pDevice = CSDHostContainer::GetDeviceByDevice((HANDLE)hDevice);
     if (pDevice) {
         if (pDevice->GetDeviceFuncionIndex()!= 0 && Function == 0) { // Customer are doing function zero.
             CSDDevice*  pDevice0 =  pDevice->GetSlot().GetFunctionDevice(0);
@@ -1693,7 +2176,7 @@ SD_API_STATUS SDReadWriteRegistersDirect__X(SD_DEVICE_HANDLE       hDevice,
     }
     DEBUGMSG(SDCARD_ZONE_ERROR && !SD_API_SUCCESS(status), (TEXT("SDReadWriteRegistersDirect__X: Failed status 0x%08X \n"),status));
     return status;
-};            
+};
 ///////////////////////////////////////////////////////////////////////////////
 //  SDCancelBusRequest__X - Cancel an outstanding bus request
 //  Input:  
@@ -1705,8 +2188,10 @@ SD_API_STATUS SDReadWriteRegistersDirect__X(SD_DEVICE_HANDLE       hDevice,
 ///////////////////////////////////////////////////////////////////////////////
 BOOLEAN SDCancelBusRequest__X(HANDLE  hRequest)
 {
-    BOOLEAN fReturn = FALSE;
-    CSDDevice *     pDevice = CSDHostContainer::GetDeviceByRequest((HANDLE)hRequest);
+    BOOLEAN             fReturn = FALSE;
+    SDBUS_PCSDDEVICE    pDevice = NULL;
+
+    pDevice = CSDHostContainer::GetDeviceByRequest((HANDLE)hRequest);
     if (pDevice) {
         fReturn = (BOOLEAN)pDevice->SDCancelBusRequest_I((HANDLE)hRequest);
         pDevice->DeRef();
@@ -1740,8 +2225,10 @@ SD_API_STATUS SDGetTuple__X(SD_DEVICE_HANDLE hDevice,
                             PULONG           pBufferSize,
                             BOOL             CommonCIS)
 {
-    SD_API_STATUS   status = SD_API_STATUS_INVALID_PARAMETER;  // intermediate status
-    CSDDevice *     pDevice = CSDHostContainer::GetDeviceByDevice((HANDLE)hDevice);
+    SD_API_STATUS       status  = SD_API_STATUS_INVALID_PARAMETER;  // intermediate status
+    SDBUS_PCSDDEVICE    pDevice = NULL;
+
+    pDevice = CSDHostContainer::GetDeviceByDevice((HANDLE)hDevice);
     if (pDevice) {
         __try {
             status = pDevice->SDGetTuple_I(TupleCode,pBuffer,pBufferSize,CommonCIS);
@@ -1778,8 +2265,10 @@ SD_API_STATUS SDGetTuple__X(SD_DEVICE_HANDLE hDevice,
 SD_API_STATUS SDIOConnectInterrupt__X(SD_DEVICE_HANDLE         hDevice, 
                                       PSD_INTERRUPT_CALLBACK   pIsrFunction)
 {
-    SD_API_STATUS   status = SD_API_STATUS_INVALID_PARAMETER;  // intermediate status
-    CSDDevice *     pDevice = CSDHostContainer::GetDeviceByDevice((HANDLE)hDevice);
+    SD_API_STATUS       status  = SD_API_STATUS_INVALID_PARAMETER;  // intermediate status
+    SDBUS_PCSDDEVICE    pDevice = NULL;
+
+    pDevice = CSDHostContainer::GetDeviceByDevice((HANDLE)hDevice);
     if (pDevice) {
         __try {
             status = pDevice->SDIOConnectDisconnectInterrupt( pIsrFunction,TRUE);
@@ -1804,8 +2293,10 @@ SD_API_STATUS SDIOConnectInterrupt__X(SD_DEVICE_HANDLE         hDevice,
 ///////////////////////////////////////////////////////////////////////////////
 SD_API_STATUS SDIODisconnectInterrupt__X(SD_DEVICE_HANDLE hDevice)
 {
-    SD_API_STATUS   status = SD_API_STATUS_INVALID_PARAMETER;  // intermediate status
-    CSDDevice *     pDevice = CSDHostContainer::GetDeviceByDevice((HANDLE)hDevice);
+    SD_API_STATUS       status  = SD_API_STATUS_INVALID_PARAMETER;  // intermediate status
+    SDBUS_PCSDDEVICE    pDevice = NULL;
+
+    pDevice = CSDHostContainer::GetDeviceByDevice((HANDLE)hDevice);
     if (pDevice) {
         __try {
             status = pDevice->SDIOConnectDisconnectInterrupt( NULL,FALSE);
@@ -1818,6 +2309,7 @@ SD_API_STATUS SDIODisconnectInterrupt__X(SD_DEVICE_HANDLE hDevice)
     DEBUGMSG(SDCARD_ZONE_ERROR && !SD_API_SUCCESS(status), (TEXT("SDIODisconnectInterrupt__X: Failed status 0x%08X \n"),status));
     return status;
 }
+
 ///////////////////////////////////////////////////////////////////////////////
 //  SDSetCardFeature       - Set card feature
 //  Input:  hDevice        - SD Device Handle
@@ -1833,13 +2325,16 @@ SD_API_STATUS SDIODisconnectInterrupt__X(SD_DEVICE_HANDLE hDevice)
 //          This function can potentially block by issuing synchronous bus 
 //          request.  This function must not be called from a bus request callback
 ///////////////////////////////////////////////////////////////////////////////
-SD_API_STATUS SDSetCardFeature__X(SD_DEVICE_HANDLE     hDevice,
-                                  SD_SET_FEATURE_TYPE  CardFeature,
-                                  PVOID                pCardInfo,
-                                  ULONG                StructureSize)
+SD_API_STATUS 
+SDSetCardFeature__X(SD_DEVICE_HANDLE     hDevice,
+                    SD_SET_FEATURE_TYPE  CardFeature,
+                    PVOID                pCardInfo,
+                    ULONG                StructureSize)
 {
-    SD_API_STATUS   status = SD_API_STATUS_INVALID_PARAMETER;  // intermediate status
-    CSDDevice *     pDevice = CSDHostContainer::GetDeviceByDevice((HANDLE)hDevice);
+    SD_API_STATUS       status  = SD_API_STATUS_INVALID_PARAMETER;  // intermediate status
+    SDBUS_PCSDDEVICE    pDevice = NULL;
+
+    pDevice = CSDHostContainer::GetDeviceByDevice((HANDLE)hDevice);
     if (pDevice) {
         __try {
             status = pDevice->SDSetCardFeature_I(CardFeature,pCardInfo,StructureSize);
@@ -1853,10 +2348,13 @@ SD_API_STATUS SDSetCardFeature__X(SD_DEVICE_HANDLE     hDevice,
     return status;
 }
 
-SD_API_STATUS SDBusRequestResponse__X(HANDLE hRequest, PSD_COMMAND_RESPONSE pSdCmdResp)
+SD_API_STATUS 
+SDBusRequestResponse__X(HANDLE hRequest, PSD_COMMAND_RESPONSE pSdCmdResp)
 {
-    SD_API_STATUS   status = SD_API_STATUS_INVALID_PARAMETER;  // intermediate status
-    CSDDevice *     pDevice = CSDHostContainer::GetDeviceByRequest((HANDLE)hRequest);
+    SD_API_STATUS       status  = SD_API_STATUS_INVALID_PARAMETER;  // intermediate status
+    SDBUS_PCSDDEVICE    pDevice = NULL;
+
+    pDevice = CSDHostContainer::GetDeviceByRequest((HANDLE)hRequest);
     if (pDevice) {
         __try {
             status = pDevice->SDBusRequestResponse_I((HANDLE)hRequest,pSdCmdResp);
@@ -1869,6 +2367,89 @@ SD_API_STATUS SDBusRequestResponse__X(HANDLE hRequest, PSD_COMMAND_RESPONSE pSdC
     DEBUGMSG(SDCARD_ZONE_ERROR && !SD_API_SUCCESS(status) , (TEXT("SDBusRequestResponse__X: Failed:wrong Handle 0x%08X \n"),hRequest));
     return status;
 }
+
+///////////////////////////////////////////////////////////////////////////////
+//  SDIOCheckHardware  -check the hardware 
+//  Input:  hDevice   - SD device handle
+//  Output: pCardStatus
+//  Return: 
+//          
+//  Notes: This function is called during a disconnect to check to see if the card was removed
+///////////////////////////////////////////////////////////////////////////////
+SD_API_STATUS 
+SDIOCheckHardware__X(SD_DEVICE_HANDLE hDevice, SD_CARD_STATUS  *pCardStatus)
+{
+    SD_API_STATUS       status  = SD_API_STATUS_INVALID_PARAMETER;  // intermediate status
+    SDBUS_PCSDDEVICE    pDevice = NULL;
+
+    pDevice = CSDHostContainer::GetDeviceByDevice((HANDLE)hDevice);
+    if (pDevice) {
+        __try {
+            status = pDevice->SDIOCheckHardware_I(pCardStatus);
+        }
+        __except (SDProcessException(GetExceptionInformation())) {
+            status = SD_API_STATUS_ACCESS_VIOLATION;
+        }
+        pDevice->DeRef();
+    }
+    DEBUGMSG(SDCARD_ZONE_ERROR && !SD_API_SUCCESS(status), (TEXT("SDIOCheckHardware__X: Failed status 0x%08X \n"),status));
+    return status;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+//  SDIOSetAdaptiveControl  - sets the adaptive control changes
+//  Input:  hDevice   - SD device handle
+//  Output: pAdaptiveControl
+//  Return: 
+//          
+///////////////////////////////////////////////////////////////////////////////
+SD_API_STATUS 
+SDIOSetAdaptiveControl__X(SD_DEVICE_HANDLE hDevice, PVOID pvAdaptiveControl)
+{
+    SD_API_STATUS       status  = SD_API_STATUS_INVALID_PARAMETER;  // intermediate status
+    SDBUS_PCSDDEVICE    pDevice = NULL;
+
+    pDevice = CSDHostContainer::GetDeviceByDevice((HANDLE)hDevice);
+    if (pDevice) {
+        __try {
+            status = pDevice->SDIOSetAdaptiveControl_I((PSD_ADAPTIVE_CONTROL)pvAdaptiveControl);
+        }
+        __except (SDProcessException(GetExceptionInformation())) {
+            status = SD_API_STATUS_ACCESS_VIOLATION;
+        }
+        pDevice->DeRef();
+    }
+    DEBUGMSG(SDCARD_ZONE_ERROR && !SD_API_SUCCESS(status), (TEXT("SDIOSetAdaptiveControl__X: Failed status 0x%08X \n"),status));
+    return status;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+//  SDIOGetAdaptiveControl  - gets the adaptive control changes
+//  Input:  hDevice   - SD device handle
+//  Output: pAdaptiveControl
+//  Return: 
+///////////////////////////////////////////////////////////////////////////////
+SD_API_STATUS 
+SDIOGetAdaptiveControl__X(SD_DEVICE_HANDLE hDevice, PVOID pvAdaptiveControl)
+{
+    SD_API_STATUS       status  = SD_API_STATUS_INVALID_PARAMETER;  // intermediate status
+    SDBUS_PCSDDEVICE    pDevice = NULL;
+
+    pDevice = CSDHostContainer::GetDeviceByDevice((HANDLE)hDevice);
+    if (pDevice) {
+        __try {
+            pDevice->SDIOGetAdaptiveControl_I((PSD_ADAPTIVE_CONTROL)pvAdaptiveControl);
+            status = SD_API_STATUS_SUCCESS;
+        }
+        __except (SDProcessException(GetExceptionInformation())) {
+            status = SD_API_STATUS_ACCESS_VIOLATION;
+        }
+        pDevice->DeRef();
+    }
+    DEBUGMSG(SDCARD_ZONE_ERROR && !SD_API_SUCCESS(status), (TEXT("SDIOGetAdaptiveControl__X: Failed status 0x%08X \n"),status));
+    return status;
+}
+
 
 extern "C"
 SD_API_STATUS 
@@ -1893,6 +2474,9 @@ SDGetClientFunctions(
         pFunctions->pSDIODisconnectInterrupt = SDIODisconnectInterrupt__X;
         pFunctions->pSDSetCardFeature = SDSetCardFeature__X;
         pFunctions->pSdBusRequestResponse = SDBusRequestResponse__X;
+        pFunctions->pSDIOCheckHardware = SDIOCheckHardware__X;
+        pFunctions->pSDIOSetAdaptiveControl = SDIOSetAdaptiveControl__X;
+        pFunctions->pSDIOGetAdaptiveControl = SDIOGetAdaptiveControl__X;
 
         status = SD_API_STATUS_SUCCESS;
     }
@@ -1904,6 +2488,3 @@ SDGetClientFunctions(
 
     return status;
 };
-
-
-

@@ -51,7 +51,7 @@
 #include <windows.h>
 #include <x86ioctl.h>
 #include <oal.h>
-#include <pc.h>
+#include <pc_smp.h>
 #include <x86boot.h>
 #include "ioctl_atom.h"
 

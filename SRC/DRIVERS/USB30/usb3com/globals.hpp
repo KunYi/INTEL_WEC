@@ -109,9 +109,14 @@
 // USB spec(1.1) 11.15.2.1 - hub descriptor type is 29h
 #define USB_HUB_DESCRIPTOR_TYPE             UCHAR(0x29)
 
+// USB spec(3.0) 10.13.2.1 - hub descriptor type is 2Ah
+#define USB_HUB3_DESCRIPTOR_TYPE             UCHAR(0x2A)
+
 // If the hub has <= 7 ports, the descriptor will be
 // 9 bytes long. Else, it will be larger.
 #define USB_HUB_DESCRIPTOR_MINIMUM_SIZE     UCHAR(0x9)
+
+#define USB_HUB3_DESCRIPTOR_MINIMUM_SIZE     UCHAR(12)
 
 // device set and clear feature recipients
 #define USB_DEVICE_RECIPIENT                UCHAR(0x00)
@@ -126,26 +131,33 @@
 #define USB_HUB_REQUEST_RESET_TT            UCHAR(0x09)
 
 // USB spec(1.1) Table 11-12 : Hub Class Feature Selectors
-#define USB_HUB_FEATURE_C_HUB_LOCAL_POWER   UCHAR(0x00)
-#define USB_HUB_FEATURE_C_HUB_OVER_CURRENT  UCHAR(0x01)
-#define USB_HUB_FEATURE_PORT_CONNECTION     UCHAR(0x00)
-#define USB_HUB_FEATURE_PORT_ENABLE         UCHAR(0x01)
-#define USB_HUB_FEATURE_PORT_SUSPEND        UCHAR(0x02)
-#define USB_HUB_FEATURE_PORT_OVER_CURRENT   UCHAR(0x03)
-#define USB_HUB_FEATURE_PORT_RESET          UCHAR(0x04)
-#define USB_HUB_FEATURE_WARM_PORT_RESET     UCHAR(0x05)
+#define USB_HUB_FEATURE_C_HUB_LOCAL_POWER   UCHAR(0x00)     //USB2.0 /USB 3.0
+#define USB_HUB_FEATURE_C_HUB_OVER_CURRENT  UCHAR(0x01)    //USB2.0 /USB 3.0
+#define USB_HUB_FEATURE_PORT_CONNECTION     UCHAR(0x00)       //USB2.0 /USB 3.0
+#define USB_HUB_FEATURE_PORT_ENABLE         UCHAR(0x01)           //USB2.0
+#define USB_HUB_FEATURE_PORT_SUSPEND        UCHAR(0x02)         //USB2.0
+#define USB_HUB_FEATURE_PORT_OVER_CURRENT   UCHAR(0x03)    //USB2.0 /USB 3.0
+#define USB_HUB_FEATURE_PORT_RESET          UCHAR(0x04)            //USB2.0 /USB 3.0
+#define USB_HUB_FEATURE_PORT_LINK_STATE     UCHAR(0x05)       //            USB 3.0
 // 0x6 - 0x7 are reserved
-#define USB_HUB_FEATURE_PORT_POWER          UCHAR(0x08)
+#define USB_HUB_FEATURE_PORT_POWER          UCHAR(0x08)          //USB2.0 /USB 3.0
 #define USB_HUB_FEATURE_PORT_LOW_SPEED      UCHAR(0x09)
 // 0xA - 0xF are reserved
 #define USB_HUB_FEATURE_C_PORT_CONNECTION   UCHAR(USB_HUB_FEATURE_PORT_CONNECTION | 0x10)
-#define USB_HUB_FEATURE_C_PORT_ENABLE       UCHAR(USB_HUB_FEATURE_PORT_ENABLE | 0x10)
-#define USB_HUB_FEATURE_C_PORT_SUSPEND      UCHAR(USB_HUB_FEATURE_PORT_SUSPEND | 0x10)
-#define USB_HUB_FEATURE_C_PORT_OVER_CURRENT UCHAR(USB_HUB_FEATURE_PORT_OVER_CURRENT | 0x10)
-#define USB_HUB_FEATURE_C_PORT_RESET        UCHAR(USB_HUB_FEATURE_PORT_RESET | 0x10)
-#define USB_HUB_FEATURE_C_WARM_PORT_RESET   UCHAR(USB_HUB_FEATURE_WARM_PORT_RESET | 0x10)
-
-#define USB_HUB_FEATURE_PORT_INDICATOR      UCHAR(0x16) //22
+#define USB_HUB_FEATURE_C_PORT_ENABLE       UCHAR(USB_HUB_FEATURE_PORT_ENABLE | 0x10)                         // 17 : USB2.0 
+#define USB_HUB_FEATURE_C_PORT_SUSPEND      UCHAR(USB_HUB_FEATURE_PORT_SUSPEND | 0x10)                     // 18 : USB2.0
+#define USB_HUB_FEATURE_C_PORT_OVER_CURRENT UCHAR(USB_HUB_FEATURE_PORT_OVER_CURRENT | 0x10)      // 19 : USB2.0 / USB3.0
+#define USB_HUB_FEATURE_C_PORT_RESET        UCHAR(USB_HUB_FEATURE_PORT_RESET | 0x10)                            // 20 : USB2.0 / USB3.0
+#define USB_HUB_FEATURE_PORT_TEST                    UCHAR(0x15)      // 21 : USB2.0  Port TEST
+#define USB_HUB_FEATURE_PORT_INDICATOR           UCHAR(0x16)    // 22 : USB2.0
+#define USB_HUB_FEATURE_PORT_U1_TIMEOUT        UCHAR(0x17)  // 23 : USB3.0
+#define USB_HUB_FEATURE_PORT_U2_TIMEOUT        UCHAR(0x18)  // 24 : USB3.0
+#define USB_HUB_FEATURE_C_PORT_LINK_STATE     UCHAR(0x19)  // 25 : USB3.0
+#define USB_HUB_FEATURE_C_PORT_CONFIG_ERROR             UCHAR(0x1A)  // 26 : USB3.0
+#define USB_HUB_FEATURE_PORT_REMOTE_WAKE_MASK       UCHAR(0x1B)  // 27 : USB3.0
+#define USB_HUB_FEATURE_BH_PORT_RESET                          UCHAR(0x1C)  // 28 : USB3.0
+#define USB_HUB_FEATURE_C_BH_PORT_RESET                      UCHAR(0x1D)  // 29 : USB3.0
+#define USB_HUB_FEATURE_FORCE_LINKPM_ACCEPT              UCHAR(0x1E)  // 30 : USB3.0
 
 #define USB_HUB_FEATURE_INVALID             UCHAR(0xFF)
 
@@ -161,6 +173,8 @@
 #define USB_HUB_CHARACTERISTIC_INDIVIDUAL_OVER_CURRENT_PROTECTION USHORT(0x1 << 3)
 // warning, can be(0x3 << 3)
 #define USB_HUB_CHARACTERISTIC_NO_OVER_CURRENT_PROTECTION         USHORT(0x2 << 3)
+// Hub ThinkTime (0x3 << 5)
+#define USB_HUB_CHARACTERISTIC_TT_THINK_TIME_MASK         USHORT(0x3 << 5)
 
 // UsbInterruptThread
 #define DEFAULT_XHCD_IST_PRIORITY          (101)
@@ -168,6 +182,8 @@
 #define RELATIVE_PRIO_STSCHG               (5)
 // DetachDownstreamDeviceThread
 #define RELATIVE_PRIO_DOWNSTREAM           (3)
+
+#define HUB_SET_DEPTH        12
 
 typedef volatile PUCHAR REGISTER;
 
@@ -261,11 +277,23 @@ typedef struct _USB_HUB_AND_PORT_STATUS
             USHORT usPortReset:1;                     // wPortStatus bit 4
             USHORT usReserved:3;                      // wPortStatus bits 5-7
             USHORT usPortPower:1;                     // wPortStatus bit 8
-            USHORT usDeviceSpeed:3;                   // wPortStatus bit 9-12
-            USHORT usPortTestMode:1;
-            USHORT usPortIndicatorControl:1;
-            USHORT usReserved2:2;                     // wPortStatus bits 10-15
+            USHORT usDeviceSpeed:2;                   // wPortStatus bit 9-10
+            USHORT usPortTestMode:1;                // bit 11
+            USHORT usPortIndicatorControl:1;     // bit 12
+            USHORT usReserved2:3;                     // wPortStatus bits 13-15
         } port;
+        struct
+        {
+            USHORT usPortConnected:1;                 // wPortStatus bit 0
+            USHORT usPortEnabled:1;                   // wPortStatus bit 1
+            USHORT usReserved:1;                 // wPortStatus bit 2
+            USHORT usPortOverCurrent:1;               // wPortStatus bit 3
+            USHORT usPortReset:1;                     // wPortStatus bit 4
+            USHORT usPortLinkState:4;                      // wPortStatus bits 5-8
+            USHORT usPortPower:1;                     // wPortStatus bit 9
+            USHORT usDeviceSpeed:3;                   // wPortStatus bit 10-12
+            USHORT usReserved2:3;                     // wPortStatus bits 13-15
+        } port30;
         USHORT wWord;
     } status;
     union
@@ -286,6 +314,17 @@ typedef struct _USB_HUB_AND_PORT_STATUS
             USHORT usWarmResetChange:1;               // wPortChange bit 5
             USHORT usReserved:10;                     // wPortChange bits 6-15
         } port;
+        struct
+        {
+            USHORT usConnectStatusChange:1;           // wPortChange bit 0
+            USHORT usReserved:2;              // wPortChange bit 1-2
+            USHORT usOverCurrentChange:1;             // wPortChange bit 3
+            USHORT usResetChange:1;                   // wPortChange bit 4
+            USHORT usWarmResetChange:1;               // wPortChange bit 5
+            USHORT usPortLinkStateChange:1;               // wPortChange bit 6
+            USHORT usPortConfigError:1;               // wPortChange bit 7
+            USHORT usReserved2:8;                     // wPortChange bits 8-15
+        } port30;
         USHORT wWord;
     } change;
 } USB_HUB_AND_PORT_STATUS, *PUSB_HUB_AND_PORT_STATUS;

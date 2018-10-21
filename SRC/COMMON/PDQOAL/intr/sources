@@ -14,10 +14,13 @@ THE SAMPLE SOURCE CODE IS PROVIDED "AS IS", WITH NO WARRANTIES OR INDEMNITIES.
 TARGETNAME=oal_intr_x86
 TARGETTYPE=LIBRARY
 
+!IF "$(BSP_APIC)" == "1"
+CDEFINES=$(CDEFINES) -DAPIC
+!ENDIF
+
 INCLUDES= \
-    ..\..\..\inc; \
-    $(_WINCEROOT)\platform\common\src\soc\x86_ms_v1\inc; \
-    $(INCLUDES)
+    ..\..\inc;$(_WINCEROOT)\platform\common\src\soc\x86_ms_v1\inc;$(INCLUDES) \
+
 
 SOURCES=init.c \
         fwpc.c \

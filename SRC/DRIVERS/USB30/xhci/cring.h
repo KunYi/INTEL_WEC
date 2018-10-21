@@ -140,8 +140,10 @@ private:
                             UCHAR bEpIndex,
                             INT iStartCycle,
                             NORMAL_TRB *pStartTrb) const;
-    INT InitializeLogicalDevice(UCHAR bSlotId, UCHAR bSpeed, UINT uPortId) const;
+    INT InitializeLogicalDevice(UCHAR bSlotId, UCHAR bSpeed, UINT uPortId, UCHAR bRootHubPort, UCHAR bHubSID, UINT uDevRoute) const;
+
     INT IssueAddressDevice(UINT64 u64InContextPtr, UCHAR bSlotId) const;
+    INT IssueEvaluateContext(UINT64 u64InContextPtr, UCHAR bSlotId) const;
     BOOL IsTrbInSement(RING_SEGMENT *pStartSeg,
                             TRB  *pDequeueTrb,
                             TRB  *pTrb,
@@ -168,7 +170,7 @@ private:
                              USB_ENDPOINT_DESCRIPTOR* peptDescr) const;
     UINT GetEndpointType(UINT uEndpointType, UCHAR uEndpointAddress) const;
     UINT ParseMicroframeInterval(UINT uInterval) const;
-    INT DoConfigureEndpoint(UCHAR bSlotId) const;
+    INT DoConfigureEndpoint(UCHAR bSlotId, USB_DEVICE_DESCRIPTOR* pDevDesc, USB_HUB_DESCRIPTOR* pHubDesc) const;
     INT ConfigureEndpoint(UCHAR bSlotId) const;
     VOID ResetInContext(LOGICAL_DEVICE* pVirtDev) const;
     VOID FreeEndpointRing(LOGICAL_DEVICE* pVirtDev,

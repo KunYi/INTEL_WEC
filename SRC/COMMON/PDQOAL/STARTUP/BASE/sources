@@ -52,6 +52,10 @@ this software.
 TARGETNAME=oal_startup_atom
 TARGETTYPE=LIBRARY
 
+!IF "$(BSP_APIC)" == "1"
+CDEFINES=$(CDEFINES) -DAPIC
+!ENDIF
+
 ASM_SAFESEH=1
 
 INCLUDES=..\..\..\inc;$(_WINCEROOT)\platform\common\src\soc\x86_ms_v1\inc;$(INCLUDES)

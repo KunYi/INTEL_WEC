@@ -538,15 +538,14 @@ BOOL CSDHCSlotBase32BitADMA2::IsEnoughDescTable(DWORD dwNumOfBlock)
     if (dwNumOfTable> m_dwNumOfTables) { // we need allocate more
         for (DWORD dwIndex = m_dwNumOfTables; dwIndex< dwNumOfTable; dwIndex++) {
             PHYSICAL_ADDRESS LogicalAddress;
-            m_pDmaDescTables[dwIndex] = (PADMA2_32_DESC) OALDMAAllocBuffer(&m_dmaAdapter, PAGE_SIZE , &LogicalAddress, FALSE );
-            if (m_pDmaDescTables[dwIndex]) {
-                m_dwDescTablePhysAddr[dwIndex] = LogicalAddress.LowPart; // We are using 32 bit address.
+            m_pDmaDescTables[m_dwNumOfTables] = (PADMA2_32_DESC) OALDMAAllocBuffer(&m_dmaAdapter, PAGE_SIZE , &LogicalAddress, FALSE );
+            if (m_pDmaDescTables[m_dwNumOfTables]) {
+                m_dwDescTablePhysAddr[m_dwNumOfTables] = LogicalAddress.LowPart; // We are using 32 bit address.
                 m_dwNumOfTables++;
             }
             else
                 break;
         }
-        
         if (dwNumOfTable!=m_dwNumOfTables) {
             ASSERT(FALSE);
             return FALSE;

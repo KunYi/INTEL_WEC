@@ -205,8 +205,8 @@ BOOL CXhcd::InitializeDevice()
         deviceInfo.usbDeviceDescriptor.bMaxPacketSize0 = 0;
         deviceInfo.usbDeviceDescriptor.bNumConfigurations = 0;
 
-        usbHubDescriptor.bDescriptorType = USB_HUB_DESCRIPTOR_TYPE;
-        usbHubDescriptor.bDescriptorLength = USB_HUB_DESCRIPTOR_MINIMUM_SIZE;
+        usbHubDescriptor.bDescriptorType = USB_HUB3_DESCRIPTOR_TYPE;
+        usbHubDescriptor.bDescriptorLength = USB_HUB3_DESCRIPTOR_MINIMUM_SIZE;
         usbHubDescriptor.bNumberOfPorts = GetNumberOfPort();
         usbHubDescriptor.wHubCharacteristics =
             USB_HUB_CHARACTERISTIC_NO_POWER_SWITCHING |

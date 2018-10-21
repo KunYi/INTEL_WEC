@@ -126,6 +126,7 @@ inline SD_CARD_INTERFACE ConvertFromEx(SD_CARD_INTERFACE_EX sdInterfaceEx)
 // Debug Function.
 extern "C" {
 VOID SDOutputBuffer(__out_bcount(BufferSize) PVOID pBuffer, ULONG BufferSize) ;
+BOOLEAN SDPerformSafeCopy(__out_bcount(Length)    PVOID pDestination,  __in_bcount(Length) const VOID *pSource,ULONG Length);
 DWORD SDProcessException(LPEXCEPTION_POINTERS pException) ;
 }
 class CSDHost:public SDCARD_HC_CONTEXT, public CRefObject {
@@ -270,7 +271,14 @@ public:
     static PSD_BUS_REQUEST SDHCDGetAndLockCurrentRequest__X(PSDCARD_HC_CONTEXT pExternalHCContext, DWORD SlotIndex);
     static VOID SDHCDUnlockRequest__X(PSDCARD_HC_CONTEXT  pExternalHCContext,PSD_BUS_REQUEST pRequest);
     static VOID SDHCDIndicateSlotStateChange__X(PSDCARD_HC_CONTEXT pExternalHCContext, DWORD SlotNumber, SD_SLOT_EVENT Event);
-    static SD_API_STATUS SDIODisconnectInterrupt__X(SD_DEVICE_HANDLE hDevice);
+    static VOID SDHCDUpdateCurrentHCOwned__X(PSDCARD_HC_CONTEXT  pHCContext, DWORD SlotIndex, PSD_BUS_REQUEST pRequest);
+    static SD_API_STATUS SDHCDCheckHardware__X(PSDCARD_HC_CONTEXT  pHCContext, DWORD SlotIndex, PSD_CARD_STATUS pCardStatus);
+    static SD_API_STATUS SDHCDUpcallSetAdaptiveControl__X(PSDCARD_HC_CONTEXT  pHCContext, DWORD SlotIndex, PVOID pAdaptiveControl);
+    static SD_API_STATUS SDHCDUpcallGetAdaptiveControl__X(PSDCARD_HC_CONTEXT  pHCContext, DWORD SlotIndex, PVOID pAdaptiveControl);
+    static SD_API_STATUS SDHCDGetLocalAdaptiveControl__X(PSDCARD_HC_CONTEXT  pHCContext, DWORD SlotIndex, PVOID pAdaptiveControl);
+    static SD_API_STATUS SDHCDFreeAllOutStandingRequests__X(PSDCARD_HC_CONTEXT  pHCContext, DWORD SlotIndex);
+    static SD_API_STATUS SDHCDSynchronousSlotStateChange__X(PSDCARD_HC_CONTEXT pExternalHCContext, DWORD SlotIndex, SD_SLOT_EVENT Event);
+    static SD_API_STATUS SDHCDHandleResetDevice__X(PSDCARD_HC_CONTEXT pExternalHCContext, DWORD SlotIndex); 
 
 private:
     static CSDHostContainer * g_pSdContainer;

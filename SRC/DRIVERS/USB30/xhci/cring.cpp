@@ -1238,11 +1238,13 @@ VOID CXhcdRing::RingTransferDoorbell(UCHAR bSlotId,
 //
 // Returns: XHCD_OK if success, FALSE otherwise.
 //----------------------------------------------------------------------------------
-INT CXhcdRing::InitializeLogicalDevice(UCHAR bSlotId, UCHAR bSpeed, UINT uPortId) const
+INT CXhcdRing::InitializeLogicalDevice(UCHAR bSlotId, UCHAR bSpeed, UINT uPortId, UCHAR bRootHubPort, UCHAR bHubSID, UINT uDevRoute) const
 {
     LOGICAL_DEVICE *pDev;
+    LOGICAL_DEVICE *pParentDev;
     ENDPOINT_CONTEXT_DATA *pEp0Context;
     SLOT_CONTEXT_DATA    *pSlotContext;
+    SLOT_CONTEXT_DATA    *pParentSlot;
     INPUT_CONTROL_CONTEXT *pCtrlContext;
 
     if(bSlotId == 0)
@@ -1291,7 +1293,26 @@ INT CXhcdRing::InitializeLogicalDevice(UCHAR bSlotId, UCHAR bSpeed, UINT uPortId
     pDev->bPortId = uPortId;
     pDev->bDeviceSpeed = bSpeed;
 
-    pSlotContext->dwRootHubPort = uPortId;
+    if (bHubSID > 0) {
+       pSlotContext->dwRouteString = uDevRoute & 0xFFFFF;
+       pSlotContext->dwRootHubPort = bRootHubPort;
+       pParentDev = m_pCHW->m_pLogicalDevices[bHubSID];
+       pParentSlot = GetSlotContext(pParentDev->pInContext);
+       if ((pParentDev->bDeviceSpeed == USB_LOW_SPEED) ||(pParentDev->bDeviceSpeed == USB_FULL_SPEED)){
+           pSlotContext->dwTtInfoHubSlotId = pParentSlot->dwTtInfoHubSlotId;
+           pSlotContext->dwTtInfoPortNumb =  pParentSlot->dwTtInfoPortNumb;
+       }
+       if (((bSpeed==USB_LOW_SPEED) || (bSpeed==USB_FULL_SPEED))
+           &&(pParentDev->bDeviceSpeed == USB_HIGH_SPEED)) {
+           pSlotContext->dwTtInfoHubSlotId = bHubSID;
+           pSlotContext->dwTtInfoPortNumb =  uPortId;
+           pSlotContext->dwMtt = pParentSlot->dwMtt;
+       }
+    }
+    else
+    {
+        pSlotContext->dwRootHubPort = uPortId;
+    }
 
     pEp0Context->dwEPType = ENDPOINT_CTRL;
 
@@ -1302,11 +1323,11 @@ INT CXhcdRing::InitializeLogicalDevice(UCHAR bSlotId, UCHAR bSpeed, UINT uPortId
         break;
 
     case USB_HIGH_SPEED:
-    case USB_FULL_SPEED:
         pEp0Context->dwMaxPacketSize = MAX_PACKET_HS;
         break;
 
     case USB_LOW_SPEED:
+    case USB_FULL_SPEED:
         pEp0Context->dwMaxPacketSize = MAX_PACKET_LS;
         break;
 
@@ -1343,6 +1364,24 @@ INT CXhcdRing::IssueAddressDevice(UINT64 u64InContextPtr, UCHAR bSlotId) const
                         TRANSFER_BLOCK_TYPE(TRANSFER_BLOCK_ADDRESS) | SLOT_TO_TRANSFER_BLOCK(bSlotId));
 }
 
+//----------------------------------------------------------------------------------
+// Function: IssueEvaluateContext
+//
+// Description: Put Evaluate Context command to the ring.
+//
+// Parameters: u64InContextPtr - physical address of the input context 
+//
+//             bSlotId - device slot ID
+//
+// Returns: XHCD_OK if success, FALSE otherwise.
+//----------------------------------------------------------------------------------
+INT CXhcdRing::IssueEvaluateContext(UINT64 u64InContextPtr, UCHAR bSlotId) const
+{
+    return IssueCommand(LEAST_32(u64InContextPtr),
+                        MOST_32(u64InContextPtr),
+                        0,
+                        TRANSFER_BLOCK_TYPE(TRANSFER_BLOCK_EVALUATE_CTX) | SLOT_TO_TRANSFER_BLOCK(bSlotId));
+}
 //----------------------------------------------------------------------------------
 // Function: GetTransferLeft
 //
@@ -2141,12 +2180,13 @@ UINT CXhcdRing::ParseMicroframeInterval(UINT uInterval) const
 //
 // Returns: Returns XHCD_OK if configure endpoint command passed, < 0 otherwise.
 //----------------------------------------------------------------------------------
-INT CXhcdRing::DoConfigureEndpoint(UCHAR bSlotId) const
+INT CXhcdRing::DoConfigureEndpoint(UCHAR bSlotId, USB_DEVICE_DESCRIPTOR* pDevDesc, USB_HUB_DESCRIPTOR* pHubDesc) const
 {
     INT i;
     INT iRet = 0;
     LOGICAL_DEVICE* pVirtDev;
     INPUT_CONTROL_CONTEXT *pCtrlContext;
+    SLOT_CONTEXT_DATA *pSlotContext;
 
     pVirtDev = m_pCHW->m_pLogicalDevices [bSlotId];
     
@@ -2159,6 +2199,18 @@ INT CXhcdRing::DoConfigureEndpoint(UCHAR bSlotId) const
     pCtrlContext->uAddFlags &= ~ENDPOINT_ZERO;
     pCtrlContext->uDropFlags &= ~SLOT;
     pCtrlContext->uDropFlags &= ~ENDPOINT_ZERO;
+
+    pSlotContext = GetSlotContext(pVirtDev->pInContext);
+    if (pDevDesc && (pDevDesc->bDeviceClass == USB_DEVICE_CLASS_HUB))
+    {
+            pSlotContext->dwNumberOfPorts = pHubDesc->bNumberOfPorts;
+            pSlotContext->dwHub = 1;
+            if (pSlotContext->dwSpeed == USB_HIGH_SPEED) {
+                /* Following info will be initialized for USB High Speed HUB */
+                pSlotContext->dwTtInfoThinkTime = (pHubDesc->wHubCharacteristics & USB_HUB_CHARACTERISTIC_TT_THINK_TIME_MASK)>> 5;
+                pSlotContext->dwMtt = (pDevDesc->bDeviceProtocol == 2) ?  1 : 0;
+            }
+    }
 
     iRet = ConfigureEndpoint(bSlotId);
     if(iRet)

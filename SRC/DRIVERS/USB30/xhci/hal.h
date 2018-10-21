@@ -159,6 +159,7 @@
 #define OVER_CURRENT_CHANGE         (1 << 20)
 #define RESET_CHANGE                (1 << 21)
 #define RESET_CLEAR                 (1 << 22)
+#define PORT_CONFIG_ERROR_CHANGE    (1 << 23)
 
 #define EXTENDED_PORT_MAJOR(x)   (((x) >> 24) & 0xff)
 #define EXTENDED_PORT_OFF(x)     ((x) & 0xff)
@@ -255,6 +256,7 @@
 #define TRANSFER_BLOCK_DISABLE_SLOT     (10)
 #define TRANSFER_BLOCK_ADDRESS          (11)
 #define TRANSFER_BLOCK_ENDPOINT_CFG     (12)
+#define TRANSFER_BLOCK_EVALUATE_CTX     (13)
 #define TRANSFER_BLOCK_RESET_ENDPOINT   (14)
 #define TRANSFER_BLOCK_SET_DEQ          (16)
 #define TRANSFER_BLOCK_RESET_DEVICE     (17)

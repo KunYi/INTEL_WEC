@@ -48,7 +48,7 @@
 // -- End Intel Copyright Notice -- 
 //  
 #include <windows.h>
-#include <pc.h>
+#include <pc_smp.h>
 #include <msr.h>
 #include <oal.h>
 #include <acpi.h>

@@ -29,7 +29,7 @@
 #include <windows.h>
 #include <nkintr.h>
 #include <bootarg.h>
-#include <pc.h>
+#include <pc_smp.h>
 #include <ceddk.h>
 #include <pehdr.h>
 #include <romldr.h>

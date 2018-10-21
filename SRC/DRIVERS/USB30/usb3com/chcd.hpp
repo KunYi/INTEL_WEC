@@ -183,9 +183,10 @@ public:
     virtual DWORD GetStartTime() const = 0;
     virtual INT AddressDevice(UCHAR bSlotId,
                               UINT uPortId,
-                              UCHAR bSpeed) = 0;
+                              UCHAR bSpeed, UCHAR bRootHubPort, UCHAR bHubSID, UINT uDevRoute) = 0;
+    virtual INT ChangeMaxPacketSize(UCHAR bSlotId, UINT bMaxPktSize) = 0;
     virtual INT ResetDevice(UCHAR bSlotId) const = 0;
-    virtual INT DoConfigureEndpoint(UCHAR bSlotId) const = 0;
+    virtual INT DoConfigureEndpoint(UCHAR bSlotId, USB_DEVICE_DESCRIPTOR* pDevDesc, USB_HUB_DESCRIPTOR* pHubDesc) const = 0;
     virtual INT AddEndpoint(UCHAR bSlotId, USB_ENDPOINT_DESCRIPTOR* peptDescr) const = 0;
 
     virtual BOOL RootHubFeature(IN const UCHAR bPort,

@@ -480,6 +480,7 @@ BOOL ProgramExecuteDmaTransaction(PDEVICE_CONTEXT pDevice)
 		
 
 	}
+	DeassertChipSelect(pDevice);
 		
     return status;
 }
@@ -614,8 +615,10 @@ BOOL InitSpiController(PDEVICE_CONTEXT pDevice)
     WRITE_REGISTER_ULONG(&pDevice->pRegisters->PRV_CLOCKS, PRV_CLOCKS_CLK_EN | (PRV_CLOCKS_M_VAL_DEFAULT << PRV_CLOCKS_M_VAL_SHIFT) | (PRV_CLOCKS_N_VAL_DEFAULT << PRV_CLOCKS_N_VAL_SHIFT) | PRV_CLOCKS_UPDATE);
     CLR_REGISTER_BITS(pDevice->pRegisters->PRV_CLOCKS, PRV_CLOCKS_UPDATE);
 
-    // Enable SW CS mode - don't touch CS state - we don't know what is required for device
+    // Enable SW CS mode
     SET_REGISTER_BITS(pDevice->pRegisters->PRV_CS_CTRL, PRV_CS_CTRL_MODE_SW);
+    // Set CS line initial state to high level
+    SET_REGISTER_BITS(pDevice->pRegisters->PRV_CS_CTRL, PRV_CS_CTRL_STATE_HI_BIT);
 
     // Disable Controller
     CLR_REGISTER_BITS(pDevice->pRegisters->SSCR0, SSCR0_SSE_EN);

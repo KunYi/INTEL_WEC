@@ -98,7 +98,7 @@ typedef enum __SD_SLOT_STATE {
 } SD_SLOT_STATE, *PSD_SLOT_STATE;
 
 
-class CSDBusReqAsyncQueue : private LockObject{
+class CSDBusReqAsyncQueue : private CLockObject{
 public:
     CSDBusReqAsyncQueue();
     virtual ~CSDBusReqAsyncQueue();
@@ -144,10 +144,13 @@ public:
     virtual BOOL HandleRemoveDevice();
     virtual BOOL HandleDeviceInterrupting();
     virtual BOOL HandleSlotSelectDeselect(SD_SLOT_EVENT Event);
+    virtual BOOL HandleSuspendDevice();
+    virtual BOOL HandleResumeDevice();
     DWORD   GetSlotIndex() { return m_dwSlotIndex; };
     USHORT  GetSlotPower() { return m_AllocatedPower; };
     USHORT  SetSlotPower(USHORT allocatedPower) { return m_AllocatedPower = allocatedPower; };
     SD_SLOT_STATE   GetSlotState() { return m_SlotState; };
+    SD_API_STATUS ReInitDevices(DWORD dwNumOfFunc);
 protected:
     CSDHost& m_SdHost;
     DWORD   m_dwSlotIndex;
@@ -213,6 +216,7 @@ public:
 
     BOOL    SwitchtoHighSpeed();
 
+    SDCARD_DEVICE_TYPE  GetDevice0Type() {return m_device0Type;}
 
 protected:
     BOOL    EnableSDIOInterrupts(void);
@@ -232,6 +236,10 @@ protected:
     SD_API_STATUS SelectSlotInterface();
     DWORD SDGetOperationalVoltageRange(DWORD OcrValue);
     CSDSlot& operator=(CSDSlot&);
+    SD_API_STATUS ReInitMultiFunction(CSDDevice& psdDevice0,DWORD dwNumOfFunc);
+    BOOL CreateNewDevice(CSDDevice **ppsdDevice);
+    SD_API_STATUS InitHardware(BOOL bReuse, SDCARD_DEVICE_TYPE device0Type);
+    SD_API_STATUS LoadDevices(DWORD dwNumOfFunc);
 
 // HC interface.
 public:
@@ -243,11 +251,20 @@ public:
     BOOL SDSlotEnableSDIOInterrupts() ;
     BOOL SDSlotDisableSDIOInterrupts();
     virtual BOOL SlotHasRequest(){ return (m_curHCOwned != NULL);}
+    VOID  SDHCUpdateCurrentHCOwned_I(PSD_BUS_REQUEST  pRequest);
+    SD_API_STATUS SDHCCheckHardware_I(PSD_CARD_STATUS pCardStatus);
+    SD_API_STATUS SDHCHandleResetDevice_I();
+    SD_API_STATUS SDHCUpcallSetAdaptiveControl_I(PSD_ADAPTIVE_CONTROL  pAdaptiveControl);
+    SD_API_STATUS SDHCUpcallGetAdaptiveControl_I(PSD_ADAPTIVE_CONTROL  pAdaptiveControl);
+    SD_API_STATUS SDHCGetLocalAdaptiveControl_I(PSD_ADAPTIVE_CONTROL  pAdaptiveControl);
+    SD_API_STATUS SDHCFreeAllOutStandingRequests_I();
 
 protected:
-    CSDBusRequest * m_curHCOwned;
-    LONG            m_lcurHCLockCount;
-    DWORD           m_FastPathThreshHold;   // FastPath Threshold.
+    CSDBusRequest*                          m_curHCOwned;
+    LONG                                    m_lcurHCLockCount;
+    DWORD                                   m_FastPathThreshHold;   // FastPath Threshold.
+    DWORD                                   m_dwThreadPrority;
+    SDCARD_DEVICE_TYPE                      m_device0Type;
 
 };
 
